@@ -75,39 +75,10 @@ export default function App() {
         throw new Error(errData.error || `Server error: ${response.status}`);
       }
 
-      const reader = response.body!.getReader();
-      const decoder = new TextDecoder();
-      let fullText = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done || !isGeneratingRef.current) break;
-
-        fullText += decoder.decode(value, { stream: true });
-
-        // Clean up markdown on the fly for display
-        let displayCode = fullText;
-        if (displayCode.startsWith("```html\n")) {
-            displayCode = displayCode.substring(8);
-        } else if (displayCode.startsWith("```html")) {
-            displayCode = displayCode.substring(7);
-        } else if (displayCode.startsWith("```\n")) {
-            displayCode = displayCode.substring(4);
-        } else if (displayCode.startsWith("```")) {
-            displayCode = displayCode.substring(3);
-        }
-
-        if (displayCode.endsWith("\n```")) {
-            displayCode = displayCode.substring(0, displayCode.length - 4);
-        } else if (displayCode.endsWith("```")) {
-            displayCode = displayCode.substring(0, displayCode.length - 3);
-        }
-
-        setCurrentCode(displayCode);
-      }
+      const fullText = await response.text();
 
       if (isGeneratingRef.current) {
-        // Final cleanup
+        // Clean up markdown
         let finalCode = fullText.replace(/^```html\n?/, "").replace(/^```\n?/, "").replace(/\n?```$/, "");
         setCurrentCode(finalCode);
 
@@ -117,8 +88,9 @@ export default function App() {
         setPrompt("");
       }
     } catch (e) {
-      showToast("Error communicating with AI");
-      console.error(e);
+      const errorMsg = e instanceof Error ? e.message : "Unknown error";
+      showToast(`Error: ${errorMsg}`);
+      console.error("API Error:", e);
     } finally {
       isGeneratingRef.current = false;
       setIsGenerating(false);
