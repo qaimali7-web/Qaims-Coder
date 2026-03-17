@@ -18,6 +18,7 @@ export default function App() {
   const [activeVersionIndex, setActiveVersionIndex] = useState<number>(0);
   const [isPreviewVisible, setIsPreviewVisible] = useState(false);
   const [toasts, setToasts] = useState<string[]>([]);
+  const [selectedModel, setSelectedModel] = useState('stepfun/step-3.5-flash:free');
 
   const codeInputRef = useRef<HTMLTextAreaElement>(null);
   const preRef = useRef<HTMLPreElement>(null);
@@ -65,6 +66,7 @@ export default function App() {
         body: JSON.stringify({
           chatHistory: newChatHistory,
           systemInstruction: "You are an expert web coder. Return ONLY the raw HTML code for a single-file website. No markdown. No explanations. Ensure Blogger compatibility (self-closing meta/link tags, CDATA for scripts/styles).",
+          model: selectedModel,
         }),
       });
 
@@ -178,6 +180,22 @@ export default function App() {
           >
             <Plus className="w-4 h-4" /> New Project
           </button>
+          
+          <div className="flex flex-col gap-2">
+            <label className="text-xs font-semibold text-slate-400 uppercase">AI Model</label>
+            <select
+              value={selectedModel}
+              onChange={(e) => setSelectedModel(e.target.value)}
+              className="w-full bg-zinc-800 border border-zinc-800 rounded-lg p-3 text-sm focus:outline-none focus:border-indigo-500 transition-colors"
+            >
+              <option value="stepfun/step-3.5-flash:free">StepFun 3.5 Flash (Free)</option>
+              <option value="anthropic/claude-3.5-sonnet">Claude 3.5 Sonnet</option>
+              <option value="openai/gpt-4o-mini">GPT-4o Mini</option>
+              <option value="openai/gpt-4o">GPT-4o</option>
+              <option value="google/gemini-2.0-flash-exp:free">Gemini 2.0 Flash (Free)</option>
+              <option value="meta-llama/llama-3.2-3b-instruct:free">Llama 3.2 3B (Free)</option>
+            </select>
+          </div>
           
           <div className="flex flex-col gap-2">
             <label className="text-xs font-semibold text-slate-400 uppercase">Describe or Edit</label>
