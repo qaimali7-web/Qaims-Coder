@@ -1,0 +1,19 @@
+{
+  "build": {
+    "env": {
+      "VITE_API_URL": "/api"
+    }
+  },
+  "functions": {
+    "api/**/*.ts": {
+      "maxDuration": 10
+    }
+  },
+  "redirects": [],
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}
