@@ -8,6 +8,25 @@ This contains everything you need to run your AI-powered HTML code generator loc
 
 **Now powered by OpenRouter** - Access to multiple AI models including Claude, GPT-4, Gemini, and more!
 
+## Features
+
+- AI-powered HTML generation using OpenRouter API
+- Real-time code preview
+- Version history tracking
+- Multiple AI model support
+- Dark theme UI with syntax highlighting
+
+## Convex Integration
+
+This project now includes Convex for backend data storage. Convex provides:
+- Real-time database for storing projects and generations
+- Serverless functions for backend logic
+- Easy scaling and deployment
+
+## Run Locally
+
+**Prerequisites:**  Node.js
+
 ## Run Locally
 
 **Prerequisites:**  Node.js
@@ -35,7 +54,16 @@ This contains everything you need to run your AI-powered HTML code generator loc
 5. Optionally add: `SITE_URL` = `https://your-vercel-app-url.vercel.app`
 6. Deploy!
 
-The app will automatically build and deploy using the configuration in `vercel.json`.
+The app will automatically build and deploy using Vercel's auto-detection.
+
+## Deploy Convex Backend
+
+To deploy the Convex backend:
+
+1. Run `npx convex deploy` in your project directory
+2. Or use the Convex dashboard to deploy your functions
+
+Convex will automatically provision your database and deploy your functions.
 
 ## Deploy to Netlify
 
