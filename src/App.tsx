@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { GitBranch, Plus, Zap, Square, Download, Copy, Eye, X } from 'lucide-react';
 import Prism from 'prismjs';
 import 'prismjs/themes/prism-tomorrow.css';
+import { Analytics } from '@vercel/analytics/react';
 
 interface HistoryItem {
   prompt: string;
@@ -291,6 +292,7 @@ export default function App() {
           </div>
         ))}
       </div>
+      <Analytics />
     </div>
   );
 }
