@@ -1,6 +1,6 @@
 // convex/generations.ts
-import { mutation } from "./_generated/server";
-import { v } from "convex/values";
+import { mutation, query } from "./_generated/server";
+import { v } from "./_generated/values";
 
 // Mutation to store a new code generation
 export const storeGeneration = mutation({
@@ -25,7 +25,7 @@ export const storeGeneration = mutation({
 });
 
 // Query to get all generations for a project
-export const getGenerationsByProject = mutation({
+export const getGenerationsByProject = query({
   args: {
     projectId: v.string(),
   },

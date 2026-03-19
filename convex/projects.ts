@@ -1,6 +1,6 @@
 // convex/projects.ts
 import { mutation, query } from "./_generated/server";
-import { v } from "convex/values";
+import { v } from "./_generated/values";
 
 // Mutation to create a new project
 export const createProject = mutation({
