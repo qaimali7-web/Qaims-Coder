@@ -1,76 +1,98 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# AI Website Builder
 
-# Qaim's Coder - AI-Powered HTML Generator
-
-This contains everything you need to run your AI-powered HTML code generator locally.
-
-**Now powered by OpenRouter** - Access to multiple AI models including Claude, GPT-4, Gemini, and more!
+A simple, powerful AI-powered website builder that generates complete HTML websites from text descriptions.
 
 ## Features
 
-- AI-powered HTML generation using OpenRouter API
-- Real-time code preview
-- Version history tracking
-- Multiple AI model support
-- Dark theme UI with syntax highlighting
+- **Direct AI Integration**: Uses OpenRouter API for instant website generation
+- **Single-File Output**: Generates complete, self-contained HTML with embedded CSS and JavaScript
+- **Multiple Models**: Choose from StepFun, Claude, GPT-4o, Gemini, and Llama
+- **Real-Time Streaming**: Watch your website build in real-time
+- **Live Preview**: Built-in preview to see your website instantly
+- **Clean Interface**: Focused, minimal UI designed for productivity
 
-## Convex Integration
+## Quick Start
 
-This project now includes Convex for backend data storage. Convex provides:
-- Real-time database for storing projects and generations
-- Serverless functions for backend logic
-- Easy scaling and deployment
+### 1. Install Dependencies
 
-## Run Locally
+```bash
+npm install
+```
 
-**Prerequisites:**  Node.js
+### 2. Configure API Key
 
-## Run Locally
+Copy `.env.example` to `.env.local` and add your OpenRouter API key:
 
-**Prerequisites:**  Node.js
+```env
+OPENROUTER_API_KEY=sk-or-v1-your-api-key-here
+SITE_URL=https://your-site-url.com  # Optional
+```
 
+Get your API key from [OpenRouter](https://openrouter.ai/keys)
 
-1. Install dependencies:
-   `npm install`
-2. Set up your API key:
-   - Copy `.env.example` to `.env.local`
-   - Get your OpenRouter API key from [OpenRouter](https://openrouter.ai/keys)
-   - Add your API key to `.env.local`:
-     ```
-     OPENROUTER_API_KEY=sk-or-v1-your_actual_api_key_here
-     SITE_URL=https://your-site-url.com  # Optional
-     ```
-3. Run the app:
-   `npm run dev`
+### 3. Run Development Server
+
+```bash
+npm run dev
+```
+
+Open http://localhost:3000 in your browser.
 
 ## Deploy to Vercel
 
 1. Push your code to GitHub
-2. Connect your repository to [Vercel](https://vercel.com)
-3. In your Vercel dashboard, go to **Settings > Environment Variables**
-4. Add: `OPENROUTER_API_KEY` = `sk-or-v1-your_actual_api_key_here`
-5. Optionally add: `SITE_URL` = `https://your-vercel-app-url.vercel.app`
-6. Deploy!
+2. Import repository in [Vercel](https://vercel.com)
+3. Add environment variable `OPENROUTER_API_KEY` in Vercel dashboard
+4. Deploy!
 
-The app will automatically build and deploy using Vercel's auto-detection.
+The app will be available at your Vercel URL.
 
-## Deploy Convex Backend
+## How It Works
 
-To deploy the Convex backend:
+1. Enter your OpenRouter API key (stored in browser localStorage)
+2. Select your preferred AI model
+3. Describe the website you want to build
+4. Click "Generate Website"
+5. Watch the code stream in real-time
+6. Preview, edit, copy, or download your HTML file
 
-1. Run `npx convex deploy` in your project directory
-2. Or use the Convex dashboard to deploy your functions
+## Technical Details
 
-Convex will automatically provision your database and deploy your functions.
+- **Frontend**: React 19 + TypeScript + Vite
+- **UI**: Tailwind CSS + Monaco Editor
+- **API**: OpenRouter (supports multiple AI models)
+- **Build**: Static site generation for easy deployment
+- **No Database**: Completely serverless - just API calls
 
-## Deploy to Netlify
+## Project Structure
 
-1. Push your code to GitHub
-2. Connect your repository to [Netlify](https://netlify.com)
-3. In your Netlify dashboard, go to Site Settings > Environment Variables
-4. Add your `GEMINI_API_KEY` environment variable
-5. Deploy!
+```
+├── api/
+│   └── generate-html.ts    # API endpoint for HTML generation
+├── src/
+│   ├── App.tsx             # Main application component
+│   ├── main.tsx            # Entry point
+│   └── index.css           # Global styles
+├── index.html
+├── package.json
+├── vite.config.ts
+└── tsconfig.json
+```
 
-The app will automatically build and deploy using the configuration in `netlify.toml`.
+## API Endpoint
+
+**POST** `/api/generate-html`
+
+Body:
+```json
+{
+  "prompt": "Describe your website",
+  "model": "stepfun/step-3.5-flash:free"
+}
+```
+
+Returns: Server-Sent Events stream with chunks of generated HTML.
+
+## License
+
+MIT
