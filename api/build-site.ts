@@ -1,69 +1,11 @@
-// api/build-site.ts - Project Architect with Streaming
-import express from 'express';
+// api/build-site.ts - Project Architect with Streaming (Vercel Serverless)
+export default async function handler(req, res) {
+  if (req.method !== "POST") {
+    res.status(405).send("Method not allowed");
+    return;
+  }
 
-const router = express.Router();
-
-// Modern system prompt enforcing HTML5/CSS3 best practices
-const SYSTEM_PROMPT = `You are an expert full-stack web developer specializing in modern, responsive web design.
-
-CRITICAL REQUIREMENTS:
-1. Use ONLY semantic HTML5 elements (header, nav, main, section, article, footer, etc.)
-2. Use MODERN CSS: Flexbox, CSS Grid, CSS Variables, media queries for responsiveness
-3. NEVER use table-based layouts, <font> tags, or MSO tags
-4. NEVER use inline styles except for dynamic values
-5. Use external CSS classes and modern design patterns
-6. Ensure mobile-first responsive design
-7. Include proper viewport meta tag
-8. Use modern JavaScript (ES6+) with event listeners, not inline onclick
-9. Follow accessibility best practices (ARIA labels, semantic structure)
-10. Optimize for performance (lazy loading, efficient selectors)
-
-OUTPUT FORMAT:
-- Return ONLY the raw code for each file
-- No markdown formatting
-- No explanations
-- No \`\`\` code blocks`;
-
-// Manifest generation system prompt
-const MANIFEST_SYSTEM_PROMPT = `You are a project architect. Analyze the user's request and create a detailed plan for a modern web project.
-
-Respond with a JSON object in this EXACT format (no markdown, no extra text):
-{
-  "structure": "single-page" | "multi-page" | "app",
-  "files": [
-    {
-      "path": "index.html",
-      "language": "html",
-      "isMain": true,
-      "description": "Main HTML file with semantic structure"
-    },
-    {
-      "path": "styles/main.css",
-      "language": "css",
-      "isMain": false,
-      "description": "Main stylesheet with CSS variables and responsive design"
-    },
-    {
-      "path": "scripts/main.js",
-      "language": "javascript",
-      "isMain": false,
-      "description": "Main JavaScript for interactivity"
-    }
-  ],
-  "description": "Brief project description",
-  "totalFiles": 3
-}
-
-RULES:
-- Always include index.html as the main file
-- Separate CSS into its own file(s)
-- Separate JavaScript into its own file(s)
-- Use relative paths
-- Keep structure simple but scalable
-- Only include necessary files`;
-
-router.post('/', async (req, res) => {
-  const { prompt, projectId, model = 'stepfun/step-3.5-flash:free' } = req.body;
+  const { prompt, projectId, model = "stepfun/step-3.5-flash:free" } = req.body;
 
   if (!prompt) {
     return res.status(400).json({ error: 'Prompt is required' });
@@ -150,8 +92,8 @@ router.post('/', async (req, res) => {
         fileIndex: manifest.totalFiles,
         totalFiles: manifest.totalFiles,
         stage: 'finalizing',
-        message: 'Saving project files...',
-        percentage: 90,
+        message: 'Project generation complete',
+        percentage: 100,
       }
     });
 
@@ -186,7 +128,7 @@ router.post('/', async (req, res) => {
   } finally {
     res.end();
   }
-});
+}
 
 // Helper to generate manifest using AI
 async function generateManifest(prompt: string, model: string): Promise<any> {
@@ -200,7 +142,7 @@ async function generateManifest(prompt: string, model: string): Promise<any> {
     headers: {
       'Authorization': `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
-      'HTTP-Referer': process.env.SITE_URL || 'http://localhost:3000',
+      'HTTP-Referer': process.env.SITE_URL || 'https://your-app.vercel.app',
       'X-Title': 'Qaims Coder - Project Architect',
     },
     body: JSON.stringify({
@@ -263,7 +205,7 @@ async function generateFileContent(
     headers: {
       'Authorization': `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
-      'HTTP-Referer': process.env.SITE_URL || 'http://localhost:3000',
+      'HTTP-Referer': process.env.SITE_URL || 'https://your-app.vercel.app',
       'X-Title': 'Qaims Coder - File Generator',
     },
     body: JSON.stringify({
@@ -296,4 +238,60 @@ async function generateFileContent(
   return content;
 }
 
-export default router;
+// System prompts
+const SYSTEM_PROMPT = `You are an expert full-stack web developer specializing in modern, responsive web design.
+
+CRITICAL REQUIREMENTS:
+1. Use ONLY semantic HTML5 elements (header, nav, main, section, article, footer, etc.)
+2. Use MODERN CSS: Flexbox, CSS Grid, CSS Variables, media queries for responsiveness
+3. NEVER use table-based layouts, <font> tags, or MSO tags
+4. NEVER use inline styles except for dynamic values
+5. Use external CSS classes and modern design patterns
+6. Ensure mobile-first responsive design
+7. Include proper viewport meta tag
+8. Use modern JavaScript (ES6+) with event listeners, not inline onclick
+9. Follow accessibility best practices (ARIA labels, semantic structure)
+10. Optimize for performance (lazy loading, efficient selectors)
+
+OUTPUT FORMAT:
+- Return ONLY the raw code for each file
+- No markdown formatting
+- No explanations
+- No \`\`\` code blocks`;
+
+const MANIFEST_SYSTEM_PROMPT = `You are a project architect. Analyze the user's request and create a detailed plan for a modern web project.
+
+Respond with a JSON object in this EXACT format (no markdown, no extra text):
+{
+  "structure": "single-page" | "multi-page" | "app",
+  "files": [
+    {
+      "path": "index.html",
+      "language": "html",
+      "isMain": true,
+      "description": "Main HTML file with semantic structure"
+    },
+    {
+      "path": "styles/main.css",
+      "language": "css",
+      "isMain": false,
+      "description": "Main stylesheet with CSS variables and responsive design"
+    },
+    {
+      "path": "scripts/main.js",
+      "language": "javascript",
+      "isMain": false,
+      "description": "Main JavaScript for interactivity"
+    }
+  ],
+  "description": "Brief project description",
+  "totalFiles": 3
+}
+
+RULES:
+- Always include index.html as the main file
+- Separate CSS into its own file(s)
+- Separate JavaScript into its own file(s)
+- Use relative paths
+- Keep structure simple but scalable
+- Only include necessary files`;

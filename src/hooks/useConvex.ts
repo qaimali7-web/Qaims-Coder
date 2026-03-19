@@ -152,6 +152,78 @@ export const useConvex = () => {
     }
   }, []);
 
+  // Function to create a project manifest (new multi-file flow)
+  const createProjectManifest = useCallback(async (
+    projectId: string,
+    prompt: string,
+    model: string
+  ) => {
+    try {
+      const result = await (convex as any).mutation("generations:createProjectManifest", {
+        projectId,
+        prompt,
+        model,
+      });
+      return result;
+    } catch (err) {
+      console.warn('Failed to create project manifest:', err);
+      return null;
+    }
+  }, []);
+
+  // Function to store project files
+  const storeProjectFiles = useCallback(async (
+    projectId: string,
+    files: any[],
+    generationId: string
+  ) => {
+    try {
+      await (convex as any).mutation("generations:storeProjectFiles", {
+        projectId,
+        files: JSON.stringify(files),
+        generationId,
+      });
+      return true;
+    } catch (err) {
+      console.warn('Failed to store project files:', err);
+      return false;
+    }
+  }, []);
+
+  // Function to complete a generation
+  const completeGeneration = useCallback(async (
+    generationId: string,
+    manifest?: any
+  ) => {
+    try {
+      await (convex as any).mutation("generations:completeGeneration", {
+        generationId,
+        manifest: manifest ? JSON.stringify(manifest) : undefined,
+      });
+      return true;
+    } catch (err) {
+      console.warn('Failed to complete generation:', err);
+      return false;
+    }
+  }, []);
+
+  // Function to fail a generation
+  const failGeneration = useCallback(async (
+    generationId: string,
+    error: string
+  ) => {
+    try {
+      await (convex as any).mutation("generations:failGeneration", {
+        generationId,
+        error,
+      });
+      return true;
+    } catch (err) {
+      console.warn('Failed to fail generation:', err);
+      return false;
+    }
+  }, []);
+
   // Get available agents
   const getAvailableAgents = useCallback(async (): Promise<Agent[]> => {
     try {
@@ -332,6 +404,8 @@ export const useConvex = () => {
     loadProjectsByAgent,
     deleteProject,
     storeGeneration,
+    createProjectManifest,
+    storeProjectFiles,
     getAvailableAgents,
     getAgentById,
     createConversation,

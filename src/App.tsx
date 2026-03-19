@@ -6,6 +6,7 @@ import { saveVersionHistory, loadVersionHistory, saveCurrentCode, loadCurrentCod
 import { validateOpenRouterApiKey, sanitizeHtml } from './utils/validation';
 import { useToasts } from './hooks/usetoasts';
 import { useCodeEditor } from './hooks/usecodeeditor';
+import { useConvex } from './hooks/useConvex';
 import { registerShortcuts, defaultEditorShortcuts } from './utils/keyboardshortcuts';
 import { trapFocus, generateUniqueId } from './utils/accessibility';
 import { AgentSelector, AgentType } from './components/agents/AgentSelector';
@@ -48,6 +49,7 @@ export default function App() {
   const [generationError, setGenerationError] = useState<ApiError | null>(null);
 
   const { toasts, showToast } = useToasts();
+  const { storeProjectFiles, createProjectManifest } = useConvex();
   const editorRef = useRef<any>(null);
   const findReplaceRef = useRef<HTMLDivElement>(null);
   const isGeneratingRef = useRef(false);
@@ -219,6 +221,20 @@ export default function App() {
                     stage: 'complete',
                     percentage: 100,
                   });
+                  
+                  // Store in Convex (frontend handles storage)
+                  try {
+                    if (storeProjectFiles && createProjectManifest) {
+                      // Create project manifest first
+                      await createProjectManifest(currentProjectId, prompt, selectedModel);
+                      
+                      // Store all project files
+                      await storeProjectFiles(currentProjectId, data.files, '');
+                    }
+                  } catch (err) {
+                    console.warn('Failed to store files in Convex:', err);
+                    // Don't fail the generation if storage fails
+                  }
                   
                   const mainFile = data.files.find((f: any) => f.isMain);
                   if (mainFile) {
