@@ -1,44 +1,28 @@
 {
-  "name": "react-example",
+  "name": "ai-website-builder",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "engines": {
     "node": "24.x"
   },
   "scripts": {
-    "dev": "concurrently \"vite --port=3000 --host=0.0.0.0\" \"npx convex dev\"",
-    "build": "npx vite build",
+    "dev": "vite --port=3000 --host=0.0.0.0",
+    "build": "vite build",
     "preview": "vite preview",
-    "clean": "rm -rf dist",
-    "lint": "tsc --noEmit",
-    "postinstall": "chmod +x node_modules/.bin/vite",
-    "deploy": "npx convex deploy"
+    "clean": "rmdir /s /q dist",
+    "lint": "tsc --noEmit"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
-    "@tailwindcss/vite": "^4.1.14",
-    "@vercel/analytics": "^2.0.1",
     "@vitejs/plugin-react": "^5.0.4",
-    "convex": "^1.33.1",
-    "dotenv": "^17.2.3",
     "lucide-react": "^0.546.0",
-    "motion": "^12.23.24",
-    "prettier": "^3.8.1",
-    "prismjs": "^1.30.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "vite": "^6.2.0"
   },
   "devDependencies": {
-    "@types/express": "^4.17.21",
     "@types/node": "^22.14.0",
-    "@types/prismjs": "^1.26.6",
-    "autoprefixer": "^10.4.21",
-    "concurrently": "^9.2.1",
-    "tailwindcss": "^4.1.14",
-    "tsx": "^4.21.0",
-    "typescript": "~5.8.2",
-    "vite": "^6.2.0"
+    "typescript": "~5.8.2"
   }
 }
