@@ -10,6 +10,7 @@ export default function App() {
   const [generationProgress, setGenerationProgress] = useState<string>('');
   const [retryCount, setRetryCount] = useState(0);
   const [maxRetries] = useState(3);
+  const [autoRetryAttempts, setAutoRetryAttempts] = useState(0);
 
   // Use StepFun model by default
   const MODEL = 'stepfun/step-3.5-flash:free';
@@ -34,14 +35,29 @@ export default function App() {
     alert('Code downloaded');
   };
 
-  const handleGenerate = async (isRetry: boolean = false, isContinue: boolean = false) => {
+  const handleGenerate = async (isRetry: boolean = false, isContinue: boolean = false, retryReason?: string) => {
     if (!prompt.trim() && !isContinue) {
       alert('Please enter a description for your website');
       return;
     }
 
     setIsGenerating(true);
-    setGenerationProgress(isRetry ? 'Retrying generation...' : isContinue ? 'Continuing generation...' : 'Starting generation...');
+    setRetryCount(prev => isRetry ? prev + 1 : 0);
+    // Reset auto-retry counter on new generation (not continuation)
+    if (!isContinue) {
+      setAutoRetryAttempts(0);
+    }
+    
+    const statusMessage = isContinue
+      ? `Auto-continuing (${autoRetryAttempts + 1}/${maxRetries})...`
+      : isRetry
+      ? `Retrying generation...`
+      : 'Starting generation...';
+    
+    setGenerationProgress(statusMessage);
+    if (retryReason) {
+      console.log('Retry reason:', retryReason);
+    }
 
     try {
       const response = await fetch('/api/generate-html', {
@@ -50,6 +66,8 @@ export default function App() {
         body: JSON.stringify({
           prompt: prompt.trim(),
           model: MODEL,
+          existingCode: isContinue ? code : undefined,
+          isContinue,
         }),
       });
 
@@ -65,7 +83,9 @@ export default function App() {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
-      let fullCode = '';
+      // Start with existing code for continuation, empty for new generation
+      const existing = isContinue ? code : '';
+      let fullCode = existing;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -87,6 +107,7 @@ export default function App() {
                 setCode(fullCode);
               } else if (data.type === 'complete') {
                 setIsGenerating(false);
+                setAutoRetryAttempts(0); // Reset auto-retry on success
                 setGenerationProgress('Complete!');
                 setTimeout(() => setGenerationProgress(''), 2000);
               } else if (data.type === 'error') {
@@ -107,21 +128,42 @@ export default function App() {
 
     } catch (error: any) {
       console.error('Generation error:', error);
-      setGenerationProgress(`Error: ${error.message}`);
-      setIsGenerating(false);
       
-      // Check if it's a context length error and we can retry
+      // Check if we should auto-retry (timeout, stall, or context length)
+      const shouldAutoRetry = (
+        error.message.includes('timeout') ||
+        error.message.includes('context') ||
+        error.message.includes('length') ||
+        error.message.includes('stall') ||
+        error.message.includes('Generation timeout') ||
+        error.message.includes('Stall detected')
+      ) && autoRetryAttempts < maxRetries;
+      
+      if (shouldAutoRetry) {
+        setAutoRetryAttempts(prev => prev + 1);
+        setGenerationProgress(`Auto-retrying due to ${error.message}... (${autoRetryAttempts + 1}/${maxRetries})`);
+        // Automatically retry with continuation
+        setTimeout(() => {
+          handleGenerate(false, true, error.message);
+        }, 1000);
+        return;
+      }
+      
+      // Manual retry for context length errors (legacy behavior)
       if (error.message.includes('context') || error.message.includes('length')) {
         if (retryCount < maxRetries) {
           setRetryCount(prev => prev + 1);
           alert(`Prompt too long. Retrying with shorter context... (${retryCount + 1}/${maxRetries})`);
-          // Could implement prompt truncation here if needed
         } else {
+          setGenerationProgress(`Error: ${error.message}`);
           alert(`Error: ${error.message}\n\nMaximum retries reached. Please shorten your prompt.`);
         }
       } else {
+        setGenerationProgress(`Error: ${error.message}`);
         alert(`Error: ${error.message}`);
       }
+      
+      setIsGenerating(false);
     }
   };
 
@@ -190,36 +232,6 @@ export default function App() {
             </button>
           )}
 
-          {/* Action Buttons */}
-          <div className="flex flex-col gap-2">
-            <button
-              onClick={handleCopy}
-              disabled={!code || isGenerating}
-              className="w-full py-2 rounded bg-zinc-800 text-slate-300 hover:bg-zinc-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Copy code"
-            >
-              <Copy className="w-4 h-4 inline mr-2" />
-              Copy Code
-            </button>
-            <button
-              onClick={handleDownload}
-              disabled={!code || isGenerating}
-              className="w-full py-2 rounded bg-zinc-800 text-slate-300 hover:bg-zinc-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Download code"
-            >
-              <Download className="w-4 h-4 inline mr-2" />
-              Download
-            </button>
-            <button
-              onClick={() => setIsPreviewVisible(true)}
-              disabled={!code || isGenerating}
-              className="w-full py-2 rounded bg-zinc-800 text-slate-300 hover:bg-zinc-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Preview"
-            >
-              <Eye className="w-4 h-4 inline mr-2" />
-              Preview
-            </button>
-          </div>
         </div>
       </div>
 

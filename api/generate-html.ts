@@ -5,7 +5,7 @@ export default async function handler(req, res) {
     return;
   }
 
-  const { prompt, model = "stepfun/step-3.5-flash:free" } = req.body;
+  const { prompt, model = "stepfun/step-3.5-flash:free", existingCode, isContinue = false } = req.body;
 
   if (!prompt) {
     return res.status(400).json({ error: 'Prompt is required' });
@@ -70,9 +70,15 @@ CRITICAL REQUIREMENTS:
 
 The HTML should be production-ready and self-contained.`
           },
+          ...(isContinue && existingCode ? [{
+            role: 'assistant',
+            content: `Here is the partially generated code:\n\n\`\`\`html\n${existingCode}\n\`\`\``
+          }] : []),
           {
             role: 'user',
-            content: prompt
+            content: isContinue && existingCode
+              ? `The previous generation was incomplete. Continue building from where you left off and complete the HTML file. Make sure to provide the FULL complete HTML document when finished. Original request: ${prompt}`
+              : prompt
           }
         ],
         stream: true,
@@ -109,9 +115,16 @@ The HTML should be production-ready and self-contained.`
 
     try {
       while (true) {
-        // Timeout checks
-        if (Date.now() - startTime > 90000) {
-          console.warn('Generation timeout (90s)');
+        // Timeout checks - increased to 5 minutes for large generations
+        if (Date.now() - startTime > 300000) {
+          console.warn('Generation timeout (300s)');
+          sendEvent({
+            type: 'error',
+            error: {
+              type: 'timeout',
+              message: 'Generation timeout (300s)',
+            },
+          });
           break;
         }
 
@@ -147,9 +160,16 @@ The HTML should be production-ready and self-contained.`
           }
         }
 
-        // Stall detection
-        if (Date.now() - lastChunkTime > 15000 && chunkCount > 0 && fullContent.length > 500) {
-          console.log('Stall detected, completing with existing content');
+        // Stall detection - increased timeout to 45 seconds for slow generations
+        if (Date.now() - lastChunkTime > 45000 && chunkCount > 0 && fullContent.length > 500) {
+          console.log('Stall detected, sending error for auto-retry');
+          sendEvent({
+            type: 'error',
+            error: {
+              type: 'stall',
+              message: 'Stall detected - no data received for 45 seconds',
+            },
+          });
           break;
         }
       }
@@ -173,11 +193,25 @@ The HTML should be production-ready and self-contained.`
       throw new Error('Invalid HTML generated');
     }
 
-    sendEvent({
-      type: 'complete',
-      content: htmlContent,
-      length: htmlContent.length,
-    });
+    // Check if HTML is complete (has closing html tag)
+    const isComplete = htmlContent.includes('</html>') || htmlContent.includes('</HTML>');
+    
+    if (!isComplete && fullContent.length > 100) {
+      // Incomplete HTML - send error for auto-retry
+      sendEvent({
+        type: 'error',
+        error: {
+          type: 'incomplete',
+          message: 'HTML generation incomplete - missing closing tags',
+        },
+      });
+    } else {
+      sendEvent({
+        type: 'complete',
+        content: htmlContent,
+        length: htmlContent.length,
+      });
+    }
 
   } catch (error: any) {
     console.error('Generation error:', error);
