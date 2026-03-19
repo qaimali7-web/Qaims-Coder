@@ -7,9 +7,9 @@
     "node": "24.x"
   },
   "scripts": {
-    "dev": "node ./node_modules/vite/bin/vite.js --port=3000 --host=0.0.0.0",
-    "build": "node ./node_modules/vite/bin/vite.js build",
-    "preview": "node ./node_modules/vite/bin/vite.js preview",
+    "dev": "node --experimental-specifier-resolution=node build.cjs dev",
+    "build": "node build.cjs build",
+    "preview": "node build.cjs preview",
     "clean": "rmdir /s /q dist",
     "lint": "tsc --noEmit"
   },
