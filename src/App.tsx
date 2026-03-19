@@ -8,6 +8,8 @@ export default function App() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isPreviewVisible, setIsPreviewVisible] = useState(false);
   const [generationProgress, setGenerationProgress] = useState<string>('');
+  const [retryCount, setRetryCount] = useState(0);
+  const [maxRetries] = useState(3);
 
   // Use StepFun model by default
   const MODEL = 'stepfun/step-3.5-flash:free';
@@ -32,15 +34,14 @@ export default function App() {
     alert('Code downloaded');
   };
 
-  const handleGenerate = async () => {
-    if (!prompt.trim()) {
+  const handleGenerate = async (isRetry: boolean = false, isContinue: boolean = false) => {
+    if (!prompt.trim() && !isContinue) {
       alert('Please enter a description for your website');
       return;
     }
 
     setIsGenerating(true);
-    setGenerationProgress('Starting generation...');
-    setCode('');
+    setGenerationProgress(isRetry ? 'Retrying generation...' : isContinue ? 'Continuing generation...' : 'Starting generation...');
 
     try {
       const response = await fetch('/api/generate-html', {
@@ -108,7 +109,19 @@ export default function App() {
       console.error('Generation error:', error);
       setGenerationProgress(`Error: ${error.message}`);
       setIsGenerating(false);
-      alert(`Error: ${error.message}`);
+      
+      // Check if it's a context length error and we can retry
+      if (error.message.includes('context') || error.message.includes('length')) {
+        if (retryCount < maxRetries) {
+          setRetryCount(prev => prev + 1);
+          alert(`Prompt too long. Retrying with shorter context... (${retryCount + 1}/${maxRetries})`);
+          // Could implement prompt truncation here if needed
+        } else {
+          alert(`Error: ${error.message}\n\nMaximum retries reached. Please shorten your prompt.`);
+        }
+      } else {
+        alert(`Error: ${error.message}`);
+      }
     }
   };
 
@@ -167,35 +180,46 @@ export default function App() {
             </div>
           )}
 
-          {/* Action Buttons */}
-          {code && !isGenerating && (
-            <div className="flex gap-2">
-              <button
-                onClick={handleCopy}
-                className="flex-1 py-2 rounded bg-zinc-800 text-slate-300 hover:bg-zinc-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
-                title="Copy code"
-              >
-                <Copy className="w-4 h-4 inline mr-1" />
-                Copy
-              </button>
-              <button
-                onClick={handleDownload}
-                className="flex-1 py-2 rounded bg-zinc-800 text-slate-300 hover:bg-zinc-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
-                title="Download code"
-              >
-                <Download className="w-4 h-4 inline mr-1" />
-                Download
-              </button>
-              <button
-                onClick={() => setIsPreviewVisible(true)}
-                className="flex-1 py-2 rounded bg-zinc-800 text-slate-300 hover:bg-zinc-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
-                title="Preview"
-              >
-                <Eye className="w-4 h-4 inline mr-1" />
-                Preview
-              </button>
-            </div>
+          {/* Retry Button (shown on error) */}
+          {generationProgress?.includes('Error') && retryCount < maxRetries && (
+            <button
+              onClick={() => handleGenerate(true, false)}
+              className="w-full py-2 rounded bg-yellow-600 text-white hover:bg-yellow-700 focus:outline-none focus:ring-2 focus:ring-yellow-500 text-sm"
+            >
+              Retry Generation ({retryCount + 1}/{maxRetries})
+            </button>
           )}
+
+          {/* Action Buttons */}
+          <div className="flex flex-col gap-2">
+            <button
+              onClick={handleCopy}
+              disabled={!code || isGenerating}
+              className="w-full py-2 rounded bg-zinc-800 text-slate-300 hover:bg-zinc-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Copy code"
+            >
+              <Copy className="w-4 h-4 inline mr-2" />
+              Copy Code
+            </button>
+            <button
+              onClick={handleDownload}
+              disabled={!code || isGenerating}
+              className="w-full py-2 rounded bg-zinc-800 text-slate-300 hover:bg-zinc-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Download code"
+            >
+              <Download className="w-4 h-4 inline mr-2" />
+              Download
+            </button>
+            <button
+              onClick={() => setIsPreviewVisible(true)}
+              disabled={!code || isGenerating}
+              className="w-full py-2 rounded bg-zinc-800 text-slate-300 hover:bg-zinc-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Preview"
+            >
+              <Eye className="w-4 h-4 inline mr-2" />
+              Preview
+            </button>
+          </div>
         </div>
       </div>
 
@@ -206,34 +230,33 @@ export default function App() {
             {code ? 'index.html' : 'No code generated yet'}
           </span>
           <div className="flex items-center gap-2">
-            {code && !isGenerating && (
-              <>
-                <button
-                  onClick={handleCopy}
-                  className="flex items-center gap-1 px-2 py-1 rounded bg-zinc-800 text-slate-300 hover:bg-zinc-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs"
-                  title="Copy code"
-                >
-                  <Copy className="w-3 h-3" />
-                  Copy
-                </button>
-                <button
-                  onClick={handleDownload}
-                  className="flex items-center gap-1 px-2 py-1 rounded bg-zinc-800 text-slate-300 hover:bg-zinc-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs"
-                  title="Download code"
-                >
-                  <Download className="w-3 h-3" />
-                  Download
-                </button>
-                <button
-                  onClick={() => setIsPreviewVisible(true)}
-                  className="flex items-center gap-1 px-2 py-1 rounded bg-zinc-800 text-slate-300 hover:bg-zinc-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs"
-                  title="Preview"
-                >
-                  <Eye className="w-3 h-3" />
-                  Preview
-                </button>
-              </>
-            )}
+            <button
+              onClick={handleCopy}
+              disabled={!code || isGenerating}
+              className="flex items-center gap-1 px-2 py-1 rounded bg-zinc-800 text-slate-300 hover:bg-zinc-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Copy code"
+            >
+              <Copy className="w-3 h-3" />
+              Copy
+            </button>
+            <button
+              onClick={handleDownload}
+              disabled={!code || isGenerating}
+              className="flex items-center gap-1 px-2 py-1 rounded bg-zinc-800 text-slate-300 hover:bg-zinc-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Download code"
+            >
+              <Download className="w-3 h-3" />
+              Download
+            </button>
+            <button
+              onClick={() => setIsPreviewVisible(true)}
+              disabled={!code || isGenerating}
+              className="flex items-center gap-1 px-2 py-1 rounded bg-zinc-800 text-slate-300 hover:bg-zinc-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Preview"
+            >
+              <Eye className="w-3 h-3" />
+              Preview
+            </button>
             {code && (
               <span className="text-slate-400 text-xs ml-2">
                 {code.length} chars
