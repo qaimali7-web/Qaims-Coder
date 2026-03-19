@@ -48,3 +48,13 @@ export const updateProjectTimestamp = mutation({
     });
   },
 });
+
+// Mutation to delete a project
+export const deleteProject = mutation({
+  args: {
+    projectId: v.id("projects"),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.delete(args.projectId);
+  },
+});

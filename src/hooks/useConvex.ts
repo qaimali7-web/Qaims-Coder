@@ -1,5 +1,5 @@
 // src/hooks/useConvex.ts
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import convex from '../convexClient';
 
 // Types for our Convex data
@@ -20,84 +20,97 @@ interface Generation {
   createdAt: number;
 }
 
-// Hook for Convex integration
+// Hook for Convex integration using plain client
 export const useConvex = () => {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   // Function to create a new project
-  const createProject = async (name: string, userId?: string) => {
+  const createProject = useCallback(async (name: string, userId?: string) => {
     try {
-      // This would call your Convex function
-      // const projectId = await convex.mutation("projects:createProject", { name, userId });
-      // For now, we'll simulate it
-      console.log("Creating project:", name);
-      return "simulated-project-id";
+      // Use 'as any' to bypass strict TypeScript typing until API is generated
+      const projectId = await (convex as any).mutation("projects:createProject", { name, userId });
+      return projectId;
     } catch (err) {
       setError("Failed to create project");
       console.error(err);
       return null;
     }
-  };
+  }, []);
+
+  // Function to load projects for a user
+  const loadProjects = useCallback(async (userId?: string) => {
+    try {
+      const fetchedProjects = await (convex as any).query("projects:getProjectsByUser", { userId });
+      setProjects(fetchedProjects as Project[]);
+      return fetchedProjects as Project[];
+    } catch (err) {
+      setError("Failed to load projects");
+      console.error(err);
+      return [];
+    }
+  }, []);
+
+  // Function to delete a project
+  const deleteProject = useCallback(async (projectId: string) => {
+    try {
+      await (convex as any).mutation("projects:deleteProject", { projectId });
+      // Remove the deleted project from local state
+      setProjects(prev => prev.filter(p => p._id !== projectId));
+      return true;
+    } catch (err) {
+      setError("Failed to delete project");
+      console.error(err);
+      return false;
+    }
+  }, []);
 
   // Function to store a code generation
-  const storeGeneration = async (
+  const storeGeneration = useCallback(async (
     projectId: string,
     prompt: string,
     code: string,
     model: string
   ) => {
     try {
-      // This would call your Convex function
-      // const generationId = await convex.mutation("generations:storeGeneration", {
-      //   projectId,
-      //   prompt,
-      //   code,
-      //   model
-      // });
-      // For now, we'll simulate it
-      console.log("Storing generation for project:", projectId);
-      return "simulated-generation-id";
+      const generationId = await (convex as any).mutation("generations:storeGeneration", {
+        projectId,
+        prompt,
+        code,
+        model
+      });
+      return generationId;
     } catch (err) {
       setError("Failed to store generation");
       console.error(err);
       return null;
     }
-  };
+  }, []);
 
-  // Simulate loading data
+  // Load projects on mount
   useEffect(() => {
     const loadData = async () => {
       try {
-        // This would fetch from Convex
-        // const fetchedProjects = await convex.query("projects:getProjectsByUser", { userId: "current-user" });
-        // setProjects(fetchedProjects);
-        // For now, we'll simulate it
-        setProjects([
-          {
-            _id: "1",
-            name: "My First Project",
-            createdAt: Date.now(),
-            updatedAt: Date.now()
-          }
-        ]);
+        // For now, use a default userId. In a real app, you'd get this from auth
+        const userId = "current-user";
+        await loadProjects(userId);
       } catch (err) {
-        setError("Failed to load projects");
-        console.error(err);
+        console.error("Failed to load initial data:", err);
       } finally {
         setLoading(false);
       }
     };
-
     loadData();
-  }, []);
+  }, [loadProjects]);
 
   return {
     projects,
     loading,
     error,
     createProject,
-    storeGeneration
+    loadProjects,
+    deleteProject,
+    storeGeneration,
   };
 };
