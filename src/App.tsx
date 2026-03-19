@@ -267,6 +267,11 @@ export default function App() {
             value={code}
             onChange={(value) => setCode(value || '')}
             theme="vs-dark"
+            loading={
+              <div className="flex items-center justify-center h-full bg-zinc-950">
+                <div className="text-slate-400">Loading editor...</div>
+              </div>
+            }
             options={{
               minimap: { enabled: true },
               fontSize: 14,
@@ -275,6 +280,11 @@ export default function App() {
               automaticLayout: true,
               tabSize: 2,
               wordWrap: 'on',
+              folding: true,
+              renderWhitespace: 'selection',
+              bracketPairColorization: { enabled: true },
+              autoClosingTags: true,
+              autoClosingBrackets: 'always',
             }}
           />
         </div>
