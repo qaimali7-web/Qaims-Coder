@@ -13,18 +13,35 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
     type: v.optional(v.string()), // "website", "code", "image", "chat", "mixed"
+    manifest: v.optional(v.any()), // ProjectManifest - stores file structure
   }).index("by_user", ["userId"]).index("by_type", ["type"]),
   
-  // Code generations - extended with agent info
+  // Project Files - NEW: Store individual files for multi-file projects
+  projectFiles: defineTable({
+    projectId: v.id("projects"),
+    path: v.string(),           // File path relative to project root
+    content: v.string(),        // File content
+    language: v.string(),       // 'html', 'css', 'javascript', 'typescript', etc.
+    isMain: v.boolean(),        // true for entry point
+    order: v.number(),          // Order in generation sequence
+    generationId: v.optional(v.id("generations")), // Link to generation that created it
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_project", ["projectId"]).index("by_project_order", ["projectId", "order"]),
+  
+  // Code generations - extended with project and file info
   generations: defineTable({
     projectId: v.id("projects"),
     prompt: v.string(),
-    code: v.string(),
+    manifest: v.optional(v.any()), // ProjectManifest for this generation
     model: v.string(),
     createdAt: v.number(),
     agentType: v.optional(v.string()),
     language: v.optional(v.string()),
-  }).index("by_project", ["projectId"]).index("by_agent", ["agentType"]),
+    status: v.string(), // "planning" | "generating" | "complete" | "error"
+    progress: v.optional(v.any()), // GenerationProgress object
+    error: v.optional(v.string()),
+  }).index("by_project", ["projectId"]).index("by_agent", ["agentType"]).index("by_status", ["status"]),
   
   // NEW: Chat conversations
   conversations: defineTable({

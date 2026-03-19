@@ -12,6 +12,9 @@ import { AgentSelector, AgentType } from './components/agents/AgentSelector';
 import { CodeAssistant } from './components/agents/CodeAssistant';
 import { ImageGenerator } from './components/agents/ImageGenerator';
 import { GeneralChat } from './components/agents/GeneralChat';
+import { FileExplorer } from './components/FileExplorer';
+import { LoadingProgress } from './components/LoadingProgress';
+import { ProjectFile, GenerationProgress, ApiError } from './types';
 
 interface HistoryItem {
   prompt: string;
@@ -34,29 +37,31 @@ export default function App() {
   const [selectedModel, setSelectedModel] = useState('stepfun/step-3.5-flash:free');
   const [isLoading, setIsLoading] = useState(false);
   const [currentProjectId, setCurrentProjectId] = useState<string>(() => {
-    // Generate a default project ID or load from storage
     const saved = localStorage.getItem('currentProjectId');
     return saved || `project-${Date.now()}`;
   });
+  
+  // Multi-file project state
+  const [projectFiles, setProjectFiles] = useState<ProjectFile[]>([]);
+  const [activeFile, setActiveFile] = useState<string | null>(null);
+  const [generationProgress, setGenerationProgress] = useState<GenerationProgress | null>(null);
+  const [generationError, setGenerationError] = useState<ApiError | null>(null);
 
   const { toasts, showToast } = useToasts();
   const editorRef = useRef<any>(null);
   const findReplaceRef = useRef<HTMLDivElement>(null);
   const isGeneratingRef = useRef(false);
 
-  // Save code to localStorage whenever it changes
   useEffect(() => {
     saveCurrentCode(currentCode);
   }, [currentCode]);
 
-  // Save version history whenever it changes (with limit)
   useEffect(() => {
     if (versionHistory.length > 0) {
       saveVersionHistory(versionHistory);
     }
   }, [versionHistory]);
 
-  // Register keyboard shortcuts
   useEffect(() => {
     const cleanup = registerShortcuts([
       ...defaultEditorShortcuts,
@@ -71,7 +76,6 @@ export default function App() {
       },
     ]);
 
-    // Custom event listeners for shortcuts
     const handleDownload = () => {
       const blob = new Blob([currentCode], { type: 'text/html' });
       const url = URL.createObjectURL(blob);
@@ -107,7 +111,6 @@ export default function App() {
     };
   }, [currentCode, isGenerating, isFindReplaceVisible, showToast]);
 
-  // Trap focus in find/replace modal
   useEffect(() => {
     if (isFindReplaceVisible && findReplaceRef.current) {
       const cleanup = trapFocus(findReplaceRef.current);
@@ -116,33 +119,51 @@ export default function App() {
   }, [isFindReplaceVisible]);
 
   const handleScroll = useCallback((e: React.UIEvent<HTMLTextAreaElement>) => {
-    // Monaco handles its own scrolling
   }, []);
 
-  // Website Builder - Generate code (existing functionality)
+  const handleEditorMount = useCallback((editor: any) => {
+    editorRef.current = editor;
+  }, []);
+
+  // Helper to determine language from file path
+  const getLanguageFromPath = (path: string): string => {
+    if (path.endsWith('.html')) return 'html';
+    if (path.endsWith('.css')) return 'css';
+    if (path.endsWith('.js')) return 'javascript';
+    if (path.endsWith('.ts')) return 'typescript';
+    if (path.endsWith('.json')) return 'json';
+    return 'text';
+  };
+
+  // Handle file selection from explorer
+  const handleFileSelect = (path: string) => {
+    const file = projectFiles.find(f => f.path === path);
+    if (file) {
+      setActiveFile(path);
+      setCurrentCode(file.content);
+    }
+  };
+
+  // Website Builder - Generate code using new Project Architect flow
   const handleGenerateWebsite = async () => {
     if (!prompt.trim()) {
       showToast('Please enter a prompt');
       return;
     }
 
-    const userMessage = currentCode
-      ? `Current Code:\n${currentCode}\n\nTask: ${prompt}. Provide the FULL updated code.`
-      : prompt;
-
-    const newChatHistory = [...chatHistory, { role: 'user', parts: [{ text: userMessage }] }];
-    setChatHistory(newChatHistory);
-
     isGeneratingRef.current = true;
     setIsGenerating(true);
+    setGenerationError(null);
+    setProjectFiles([]);
+    setActiveFile(null);
 
     try {
-      const response = await fetch('/api/generate', {
+      const response = await fetch('/api/build-site', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          chatHistory: newChatHistory,
-          systemInstruction: 'You are an expert web coder. Return ONLY the raw HTML code for a single-file website. No markdown. No explanations. Ensure Blogger compatibility (self-closing meta/link tags, CDATA for scripts/styles).',
+          prompt: prompt.trim(),
+          projectId: currentProjectId,
           model: selectedModel,
         }),
       });
@@ -152,36 +173,92 @@ export default function App() {
         throw new Error(errData.error || `Server error: ${response.status}`);
       }
 
-      const fullText = await response.text();
+      if (!response.body) {
+        throw new Error('No response body');
+      }
 
-      if (isGeneratingRef.current) {
-        // Clean up markdown
-        let finalCode = fullText.replace(/^```html\n?/, '').replace(/^```\n?/, '').replace(/\n?```$/, '');
-        
-        // Sanitize HTML for security
-        finalCode = sanitizeHtml(finalCode);
-        
-        setCurrentCode(finalCode);
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
 
-        setVersionHistory(prev => {
-          const newItem: HistoryItem = {
-            prompt,
-            code: finalCode,
-            timestamp: new Date().toLocaleTimeString(),
-          };
-          // Keep only the latest MAX_VERSION_HISTORY items
-          return [newItem, ...prev].slice(0, MAX_VERSION_HISTORY);
-        });
-        setActiveVersionIndex(0);
-        setChatHistory([...newChatHistory, { role: 'model', parts: [{ text: finalCode }] }]);
-        setPrompt('');
-        showToast('Code generated successfully');
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              
+              switch (data.type) {
+                case 'progress':
+                  setGenerationProgress(data.progress);
+                  break;
+                  
+                case 'file_complete':
+                  setProjectFiles(prev => [...prev, {
+                    path: data.filePath,
+                    content: data.content,
+                    language: getLanguageFromPath(data.filePath),
+                    isMain: data.filePath === 'index.html',
+                    order: projectFiles.length,
+                  }]);
+                  if (!activeFile) {
+                    setActiveFile(data.filePath);
+                    setCurrentCode(data.content);
+                  }
+                  break;
+                  
+                case 'complete':
+                  setGenerationProgress({
+                    ...data.progress,
+                    stage: 'complete',
+                    percentage: 100,
+                  });
+                  
+                  const mainFile = data.files.find((f: any) => f.isMain);
+                  if (mainFile) {
+                    setVersionHistory(prev => {
+                      const newItem: HistoryItem = {
+                        prompt,
+                        code: mainFile.content,
+                        timestamp: new Date().toLocaleTimeString(),
+                      };
+                      return [newItem, ...prev].slice(0, MAX_VERSION_HISTORY);
+                    });
+                  }
+                  
+                  setPrompt('');
+                  showToast('Project generated successfully');
+                  isGeneratingRef.current = false;
+                  setIsGenerating(false);
+                  break;
+                  
+                case 'error':
+                  setGenerationError(data.error);
+                  showToast(`Error: ${data.error.message}`);
+                  isGeneratingRef.current = false;
+                  setIsGenerating(false);
+                  break;
+              }
+            } catch (e) {
+              console.error('Failed to parse SSE data:', e);
+            }
+          }
+        }
       }
     } catch (e) {
       const errorMsg = e instanceof Error ? e.message : 'Unknown error';
+      setGenerationError({
+        type: 'unknown',
+        message: errorMsg,
+      });
       showToast(`Error: ${errorMsg}`);
       console.error('API Error:', e);
-    } finally {
       isGeneratingRef.current = false;
       setIsGenerating(false);
     }
@@ -198,6 +275,10 @@ export default function App() {
     setVersionHistory([]);
     setPrompt('');
     setActiveVersionIndex(0);
+    setProjectFiles([]);
+    setActiveFile(null);
+    setGenerationProgress(null);
+    setGenerationError(null);
     const newProjectId = `project-${Date.now()}`;
     setCurrentProjectId(newProjectId);
     localStorage.setItem('currentProjectId', newProjectId);
@@ -239,45 +320,48 @@ export default function App() {
 
   const handleFind = useCallback(() => {
     if (editorRef.current && findQuery) {
-      // Monaco editor find action
-      editorRef.current.getAction('actions.find').run();
+      const model = editorRef.current.getModel();
+      const matches = model.findMatches(findQuery, true, false, false, null, true);
+      if (matches.length > 0) {
+        editorRef.current.setSelection(matches[0].range);
+        editorRef.current.revealRangeInCenter(matches[0].range);
+      }
     }
   }, [findQuery]);
 
   const handleReplace = useCallback(() => {
     if (editorRef.current && findQuery && replaceQuery) {
-      // Monaco editor replace action
-      editorRef.current.getAction('editor.action.startFindReplaceAction').run();
+      const model = editorRef.current.getModel();
+      const matches = model.findMatches(findQuery, true, false, false, null, true);
+      if (matches.length > 0) {
+        editorRef.current.executeEdits('replace', [
+          {
+            range: matches[0].range,
+            text: replaceQuery,
+          },
+        ]);
+        showToast('Replaced');
+      }
     }
-  }, [findQuery, replaceQuery]);
+  }, [findQuery, replaceQuery, showToast]);
 
-  const handleEditorMount = useCallback((editor: any) => {
-    editorRef.current = editor;
-  }, []);
-
-  // Accessibility: announce changes to screen readers
-  useEffect(() => {
-    if (currentCode) {
-      // Could add more sophisticated announcements
-    }
-  }, [currentCode]);
-
-  // Handle agent change
   const handleAgentChange = (agent: AgentType) => {
     setCurrentAgent(agent);
-    // Reset UI state when switching agents
     setPrompt('');
     setCurrentCode('');
     setChatHistory([]);
     setVersionHistory([]);
     setActiveVersionIndex(0);
     setCurrentProjectId(null);
+    setProjectFiles([]);
+    setActiveFile(null);
+    setGenerationProgress(null);
+    setGenerationError(null);
     showToast(`Switched to ${agent === 'website' ? 'Website Builder' : agent === 'code' ? 'Code Assistant' : agent === 'image' ? 'Image Generator' : 'General Chat'}`);
   };
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-zinc-950 text-slate-50 font-sans">
-      {/* Sidebar */}
       <aside className="w-80 min-w-[320px] flex flex-col bg-zinc-900 border-r border-zinc-800 z-10" role="complementary" aria-label="Controls sidebar">
         <div className="p-4 px-5 border-b border-zinc-800 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
@@ -291,13 +375,11 @@ export default function App() {
         </div>
         
         <div className="p-4 overflow-y-auto flex-1 flex flex-col gap-4">
-          {/* Agent Selector */}
           <AgentSelector
             currentAgent={currentAgent}
             onAgentChange={handleAgentChange}
           />
 
-          {/* Website Builder UI (only show when website agent is selected) */}
           {currentAgent === 'website' && (
             <>
               <button 
@@ -386,7 +468,6 @@ export default function App() {
             </>
           )}
 
-          {/* Code Assistant UI (when code agent is selected) */}
           {currentAgent === 'code' && (
             <div className="flex-1 flex flex-col">
               <CodeAssistant
@@ -396,7 +477,6 @@ export default function App() {
             </div>
           )}
 
-          {/* Image Generator UI (when image agent is selected) */}
           {currentAgent === 'image' && (
             <div className="flex-1 flex flex-col">
               <ImageGenerator
@@ -406,7 +486,6 @@ export default function App() {
             </div>
           )}
 
-          {/* General Chat UI (when chat agent is selected) */}
           {currentAgent === 'chat' && (
             <div className="flex-1 flex flex-col">
               <GeneralChat
@@ -418,11 +497,21 @@ export default function App() {
         </div>
       </aside>
 
-      {/* Main Editor Panel - Only show for Website Builder */}
       {currentAgent === 'website' && (
         <main className="flex-1 flex flex-col bg-zinc-950 relative" role="main">
+          <LoadingProgress
+            progress={generationProgress}
+            isGenerating={isGenerating}
+            error={generationError?.message || null}
+          />
+
           <div className="h-[50px] flex items-center justify-between px-5 bg-zinc-900 border-b border-zinc-800 text-sm text-slate-400">
-            <span id="status" aria-live="polite">{currentCode ? 'Project Active' : 'New Project'}</span>
+            <span id="status" aria-live="polite">
+              {projectFiles.length > 0 
+                ? `${projectFiles.length} file${projectFiles.length !== 1 ? 's' : ''} • ${activeFile || 'No file selected'}`
+                : currentCode ? 'Project Active' : 'New Project'
+              }
+            </span>
             <div className="flex gap-2">
               <button 
                 onClick={handleFormatCode}
@@ -467,11 +556,18 @@ export default function App() {
           </div>
           
           <div className="flex-1 flex overflow-hidden relative">
-            {/* Editor */}
+            {projectFiles.length > 0 && (
+              <FileExplorer
+                files={projectFiles}
+                activeFile={activeFile}
+                onFileSelect={handleFileSelect}
+              />
+            )}
+            
             <div className="flex-1 relative">
               <Editor
                 height="100%"
-                defaultLanguage="html"
+                defaultLanguage={activeFile ? getLanguageFromPath(activeFile) : 'html'}
                 value={currentCode}
                 onChange={(value) => setCurrentCode(value || '')}
                 theme="vs-dark"
@@ -497,7 +593,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* Preview Overlay */}
           {isPreviewVisible && (
             <div className="absolute inset-0 bg-white z-50 flex flex-col" role="dialog" aria-label="Preview" aria-modal="true">
               <div className="h-[50px] bg-slate-100 border-b border-slate-200 flex items-center justify-between px-5 text-slate-600">
@@ -521,7 +616,6 @@ export default function App() {
             </div>
           )}
 
-          {/* Find/Replace Modal */}
           {isFindReplaceVisible && (
             <div 
               className="absolute inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
@@ -568,7 +662,6 @@ export default function App() {
                   <button
                     onClick={() => {
                       if (editorRef.current && findQuery) {
-                        // Monaco find
                         const model = editorRef.current.getModel();
                         const matches = model.findMatches(findQuery, true, false, false, null, true);
                         if (matches.length > 0) {
@@ -618,20 +711,6 @@ export default function App() {
           )}
         </main>
       )}
-
-      {/* Toasts */}
-      <div 
-        className="fixed bottom-5 right-5 z-[9999] flex flex-col gap-2.5"
-        role="status"
-        aria-live="polite"
-        aria-atomic="true"
-      >
-        {toasts.map((toast) => (
-          <div key={toast.id} className="bg-zinc-900 text-slate-50 px-5 py-3 rounded-lg border-l-4 border-indigo-500 shadow-lg">
-            {toast.message}
-          </div>
-        ))}
-      </div>
     </div>
   );
 }

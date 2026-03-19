@@ -2,6 +2,7 @@ import express from 'express';
 import { createServer } from 'http';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import buildSiteRouter from './api/build-site';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -11,7 +12,10 @@ const server = createServer(app);
 
 app.use(express.json());
 
-// Proxy to OpenRouter
+// Serve static files from Vite
+app.use(express.static('dist'));
+
+// Legacy generate endpoint (for backward compatibility)
 app.post('/api/generate', async (req, res) => {
   const { chatHistory, systemInstruction, model = "stepfun/step-3.5-flash:free" } = req.body;
 
@@ -63,6 +67,9 @@ app.post('/api/generate', async (req, res) => {
     res.status(500).json({ error: `Failed to generate code: ${error.message}` });
   }
 });
+
+// New build-site endpoint with streaming and project architect flow
+app.use('/api/build-site', buildSiteRouter);
 
 const port = process.env.PORT || 3001;
 server.listen(port, () => {
