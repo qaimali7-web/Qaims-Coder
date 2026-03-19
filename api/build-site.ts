@@ -300,46 +300,96 @@ async function generateFileContentStreaming(
     let fullContent = '';
     let chunkCount = 0;
     let lastChunkTime = Date.now();
+    let streamStartTime = Date.now();
 
     console.log(`Starting to read stream for ${fileSpec.path}`);
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) {
-        console.log(`Stream completed for ${fileSpec.path}, total chunks: ${chunkCount}`);
-        break;
-      }
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const dataStr = line.slice(6);
-          if (dataStr === '[DONE]') {
-            console.log(`Received [DONE] for ${fileSpec.path}`);
-            continue;
+    try {
+      while (true) {
+        // Add a timeout to each read operation (10 seconds)
+        const readPromise = reader.read();
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('Read timeout')), 10000);
+        });
+        
+        let result: { done: boolean; value: Uint8Array };
+        try {
+          result = await Promise.race([readPromise, timeoutPromise]) as { done: boolean; value: Uint8Array };
+        } catch (err: any) {
+          if (err.message === 'Read timeout') {
+            // Check if we should force completion due to stall
+            if (Date.now() - lastChunkTime > 15000 && fullContent.length > 1000) {
+              console.warn(`Read timeout (stall) for ${fileSpec.path}, completing with ${fullContent.length} chars`);
+              break;
+            }
+            // If we haven't received any chunks yet, continue waiting
+            if (chunkCount === 0) {
+              console.warn(`Read timeout before first chunk for ${fileSpec.path}, continuing...`);
+              continue;
+            }
+            // Otherwise, consider it done
+            console.warn(`Read timeout for ${fileSpec.path} after ${chunkCount} chunks, completing`);
+            break;
           }
+          throw err;
+        }
+        
+        const { done, value } = result;
+        
+        if (done) {
+          console.log(`Stream completed for ${fileSpec.path}, total chunks: ${chunkCount}`);
+          break;
+        }
 
-          try {
-            const data = JSON.parse(dataStr);
-            const contentChunk = data.choices?.[0]?.delta?.content;
-            if (contentChunk) {
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const dataStr = line.slice(6);
+            if (dataStr === '[DONE]') {
+              console.log(`Received [DONE] for ${fileSpec.path}`);
+              break;
+            }
+
+            try {
+              const data = JSON.parse(dataStr);
+              const contentChunk = data.choices?.[0]?.delta?.content;
+              if (contentChunk) {
               chunkCount++;
               lastChunkTime = Date.now();
               fullContent += contentChunk;
               onChunk(contentChunk);
+              }
+            } catch (e) {
+              // Skip invalid JSON lines
             }
-          } catch (e) {
-            // Skip invalid JSON lines
           }
         }
+        
+        // Check for stalled stream (no new chunks in 15 seconds)
+        if (Date.now() - lastChunkTime > 15000 && chunkCount > 0) {
+          console.warn(`Stream stalled for ${fileSpec.path}, no chunks for 15s - forcing completion`);
+          // If we have at least 1000 characters, consider it done
+          if (fullContent.length > 1000) {
+            console.log(`Forcing completion of ${fileSpec.path} with ${fullContent.length} chars (stalled)`);
+            break;
+          }
+        }
+        
+        // Hard timeout: if streaming takes more than 90 seconds, force complete
+        if (Date.now() - streamStartTime > 90000) {
+          console.warn(`Stream exceeded 90s timeout for ${fileSpec.path}, forcing completion`);
+          break;
+        }
       }
-      
-      // Check for stalled stream (no chunks in 30 seconds)
-      if (Date.now() - lastChunkTime > 30000 && chunkCount > 0) {
-        console.warn(`Stream stalled for ${fileSpec.path}, no chunks for 30s`);
+    } catch (error: any) {
+      if (error.message === 'Read timeout') {
+        console.warn(`Read timeout for ${fileSpec.path}, completing with ${fullContent.length} chars`);
+        // Timeout is expected, we'll return what we have
+      } else {
+        throw error; // Re-throw other errors
       }
     }
 
