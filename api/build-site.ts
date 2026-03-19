@@ -11,14 +11,21 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Prompt is required' });
   }
 
-  // Set up SSE response
+  // Set up SSE response with CORS headers for Vercel
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   const sendEvent = (data: any) => {
     res.write(`data: ${JSON.stringify(data)}\n\n`);
   };
+  
+  // Send keep-alive comments every 15 seconds to prevent connection timeout
+  const keepAliveInterval = setInterval(() => {
+    res.write(': keep-alive\n\n');
+  }, 15000);
 
   try {
     // Step 1: Generate Project Manifest
@@ -65,33 +72,54 @@ export default async function handler(req, res) {
         }
       });
 
-      const content = await generateFileContentStreaming(
-        prompt,
-        fileSpec,
-        files, // previously generated files
-        model,
-        (chunk) => {
-          // Send incremental updates to frontend
-          sendEvent({
-            type: 'file_chunk',
+      console.log(`Starting generation of file ${i + 1}/${manifest.files.length}: ${fileSpec.path}`);
+      
+      try {
+        const content = await generateFileContentStreaming(
+          prompt,
+          fileSpec,
+          files, // previously generated files
+          model,
+          (chunk) => {
+            // Send incremental updates to frontend
+            sendEvent({
+              type: 'file_chunk',
+              filePath: fileSpec.path,
+              chunk,
+              fileIndex: i,
+              totalFiles: manifest.totalFiles,
+            });
+          }
+        );
+        
+        console.log(`Completed generation of file: ${fileSpec.path} (${content.length} chars)`);
+
+        files.push({
+          ...fileSpec,
+          content,
+        });
+
+        sendEvent({
+          type: 'file_complete',
+          filePath: fileSpec.path,
+          content,
+        });
+      } catch (fileError: any) {
+        console.error(`Failed to generate file ${fileSpec.path}:`, fileError);
+        sendEvent({
+          type: 'error',
+          error: {
+            type: 'file_generation',
+            message: `Failed to generate ${fileSpec.path}: ${fileError.message}`,
             filePath: fileSpec.path,
-            chunk,
-            fileIndex: i,
-            totalFiles: manifest.totalFiles,
-          });
-        }
-      );
-
-      files.push({
-        ...fileSpec,
-        content,
-      });
-
-      sendEvent({
-        type: 'file_complete',
-        filePath: fileSpec.path,
-        content,
-      });
+          },
+        });
+        // Continue with next file instead of stopping entire generation
+        files.push({
+          ...fileSpec,
+          content: `// Error generating file: ${fileError.message}`,
+        });
+      }
     }
 
     // Step 3: Finalize
@@ -124,6 +152,8 @@ export default async function handler(req, res) {
       errorType = 'network';
     } else if (error.message?.includes('rate limit')) {
       errorType = 'rate_limit';
+    } else if (error.message?.includes('timeout')) {
+      errorType = 'timeout';
     }
 
     sendEvent({
@@ -136,6 +166,7 @@ export default async function handler(req, res) {
       },
     });
   } finally {
+    clearInterval(keepAliveInterval);
     res.end();
   }
 }
@@ -162,7 +193,7 @@ async function generateManifest(prompt: string, model: string): Promise<any> {
         { role: 'user', content: prompt },
       ],
       stream: false,
-      max_tokens: 2000,
+      max_tokens: 20000,
       temperature: 0.7,
     }),
   });
@@ -202,20 +233,32 @@ async function generateFileContentStreaming(
     throw new Error('OPENROUTER_API_KEY not configured');
   }
 
-  // Build context from previous files
+  // Build context from previous files (limited to avoid token limits)
   const context = previousFiles.length > 0
-    ? `\n\nPreviously generated files:\n${previousFiles.map(f => `=== ${f.path} ===\n${f.content}`).join('\n\n')}`
+    ? `\n\nPreviously generated files (summarized):\n${previousFiles.map(f => {
+        const ext = f.path.split('.').pop() || 'unknown';
+        return `=== ${f.path} ===\nType: ${ext}\nSize: ${f.content.length} chars\nPreview: ${f.content.substring(0, 500)}${f.content.length > 500 ? '...' : ''}`;
+      }).join('\n\n')}`
     : '';
 
   const userPrompt = fileSpec.language === 'html'
     ? `Create the ${fileSpec.path} file for: ${prompt}\n\n${context}\n\nReturn ONLY the raw ${fileSpec.language} code. No markdown. No explanations.`
     : `Create the ${fileSpec.path} file (${fileSpec.language}) for: ${prompt}\n\n${context}\n\nReturn ONLY the raw ${fileSpec.language} code. No markdown. No explanations.`;
 
-  // Set up timeout (60 seconds)
+  console.log(`Requesting ${fileSpec.path} from OpenRouter with model: ${model}`);
+  console.log(`Context length: ${context.length} chars from ${previousFiles.length} previous files`);
+
+  // Set up timeout (120 seconds)
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 60000);
+  let timeoutId: NodeJS.Timeout;
+  timeoutId = setTimeout(() => {
+    console.error(`Timeout generating file: ${fileSpec.path}`);
+    controller.abort();
+  }, 120000);
 
   try {
+    console.log(`Sending request to OpenRouter for ${fileSpec.path}...`);
+    
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       signal: controller.signal,
@@ -241,8 +284,11 @@ async function generateFileContentStreaming(
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
+      console.error(`OpenRouter error for ${fileSpec.path}:`, errorData);
       throw new Error(errorData.error?.message || `File generation failed: ${response.status}`);
     }
+
+    console.log(`Stream response received for ${fileSpec.path}, status: ${response.status}`);
 
     const reader = response.body?.getReader();
     if (!reader) {
@@ -252,10 +298,17 @@ async function generateFileContentStreaming(
     const decoder = new TextDecoder();
     let buffer = '';
     let fullContent = '';
+    let chunkCount = 0;
+    let lastChunkTime = Date.now();
+
+    console.log(`Starting to read stream for ${fileSpec.path}`);
 
     while (true) {
       const { done, value } = await reader.read();
-      if (done) break;
+      if (done) {
+        console.log(`Stream completed for ${fileSpec.path}, total chunks: ${chunkCount}`);
+        break;
+      }
 
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split('\n');
@@ -264,12 +317,17 @@ async function generateFileContentStreaming(
       for (const line of lines) {
         if (line.startsWith('data: ')) {
           const dataStr = line.slice(6);
-          if (dataStr === '[DONE]') continue;
+          if (dataStr === '[DONE]') {
+            console.log(`Received [DONE] for ${fileSpec.path}`);
+            continue;
+          }
 
           try {
             const data = JSON.parse(dataStr);
             const contentChunk = data.choices?.[0]?.delta?.content;
             if (contentChunk) {
+              chunkCount++;
+              lastChunkTime = Date.now();
               fullContent += contentChunk;
               onChunk(contentChunk);
             }
@@ -277,6 +335,11 @@ async function generateFileContentStreaming(
             // Skip invalid JSON lines
           }
         }
+      }
+      
+      // Check for stalled stream (no chunks in 30 seconds)
+      if (Date.now() - lastChunkTime > 30000 && chunkCount > 0) {
+        console.warn(`Stream stalled for ${fileSpec.path}, no chunks for 30s`);
       }
     }
 
@@ -286,6 +349,12 @@ async function generateFileContentStreaming(
       .replace(/^```\n?/, '')
       .replace(/\n?```$/, '')
       .trim();
+
+    console.log(`Finished ${fileSpec.path}, final length: ${cleanedContent.length} chars`);
+    
+    if (cleanedContent.length === 0) {
+      console.warn(`Empty content generated for ${fileSpec.path}`);
+    }
 
     return cleanedContent;
   } catch (error: any) {

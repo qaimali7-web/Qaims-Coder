@@ -7,6 +7,7 @@ import { validateOpenRouterApiKey, sanitizeHtml } from './utils/validation';
 import { useToasts } from './hooks/usetoasts';
 import { useCodeEditor } from './hooks/usecodeeditor';
 import { useConvex } from './hooks/useConvex';
+import { useLogger } from './hooks/useLogger';
 import { registerShortcuts, defaultEditorShortcuts } from './utils/keyboardshortcuts';
 import { trapFocus, generateUniqueId } from './utils/accessibility';
 import { AgentSelector, AgentType } from './components/agents/AgentSelector';
@@ -53,21 +54,39 @@ export default function App() {
 
   const { toasts, showToast } = useToasts();
   const { storeProjectFiles, createProjectManifest } = useConvex();
+  const { logs, downloadLogs, info, warn, error: logError, debug } = useLogger();
   const editorRef = useRef<any>(null);
   const findReplaceRef = useRef<HTMLDivElement>(null);
   const isGeneratingRef = useRef(false);
 
+  // Log app lifecycle events
+  useEffect(() => {
+    info('App', 'Component mounted');
+    debug('App', 'Initial state', {
+      currentAgent,
+      currentProjectId,
+      versionHistoryLength: versionHistory.length,
+    });
+
+    return () => {
+      info('App', 'Component unmounting');
+    };
+  }, []);
+
   useEffect(() => {
     saveCurrentCode(currentCode);
+    debug('App', 'Current code updated', { length: currentCode.length });
   }, [currentCode]);
 
   useEffect(() => {
     if (versionHistory.length > 0) {
       saveVersionHistory(versionHistory);
+      debug('App', 'Version history updated', { count: versionHistory.length });
     }
   }, [versionHistory]);
 
   useEffect(() => {
+    debug('App', 'Registering keyboard shortcuts');
     const cleanup = registerShortcuts([
       ...defaultEditorShortcuts,
       {
@@ -75,6 +94,7 @@ export default function App() {
         description: 'Close find/replace',
         action: () => {
           if (isFindReplaceVisible) {
+            debug('App', 'Escape pressed - closing find/replace');
             setIsFindReplaceVisible(false);
           }
         },
@@ -82,6 +102,7 @@ export default function App() {
     ]);
 
     const handleDownload = () => {
+      debug('App', 'Keyboard shortcut: download-code');
       const blob = new Blob([currentCode], { type: 'text/html' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -93,11 +114,13 @@ export default function App() {
     };
 
     const handleOpenFindReplace = () => {
+      debug('App', 'Keyboard shortcut: open-find-replace');
       setIsFindReplaceVisible(true);
     };
 
     const handleStopGeneration = () => {
       if (isGenerating) {
+        debug('App', 'Keyboard shortcut: stop-generation');
         isGeneratingRef.current = false;
         setIsGenerating(false);
         showToast('Generation stopped');
@@ -113,15 +136,19 @@ export default function App() {
       document.removeEventListener('download-code', handleDownload);
       document.removeEventListener('open-find-replace', handleOpenFindReplace);
       document.removeEventListener('stop-generation', handleStopGeneration);
+      debug('App', 'Keyboard shortcuts cleaned up');
     };
-  }, [currentCode, isGenerating, isFindReplaceVisible, showToast]);
+  }, [currentCode, isGenerating, isFindReplaceVisible, showToast, debug]);
 
   useEffect(() => {
     if (isFindReplaceVisible && findReplaceRef.current) {
+      debug('App', 'Find/replace opened, trapping focus');
       const cleanup = trapFocus(findReplaceRef.current);
-      return cleanup;
+      return () => {
+        debug('App', 'Find/replace focus trap cleanup');
+      };
     }
-  }, [isFindReplaceVisible]);
+  }, [isFindReplaceVisible, debug]);
 
   const handleScroll = useCallback((e: React.UIEvent<HTMLTextAreaElement>) => {
   }, []);
@@ -142,16 +169,22 @@ export default function App() {
 
   // Handle file selection from explorer
   const handleFileSelect = (path: string) => {
+    debug('App', 'File selected', { path });
+    
     // Check if this file is currently being streamed
     const streamingContent = streamingFileContent.current.get(path);
     if (streamingContent) {
+      debug('App', 'Selecting streaming file', { path, contentLength: streamingContent.length });
       setActiveFile(path);
       setCurrentCode(streamingContent);
     } else {
       const file = projectFiles.find(f => f.path === path);
       if (file) {
+        debug('App', 'Selecting completed file', { path, contentLength: file.content.length });
         setActiveFile(path);
         setCurrentCode(file.content);
+      } else {
+        warn('App', 'Selected file not found', { path });
       }
     }
   };
@@ -160,9 +193,16 @@ export default function App() {
   const handleGenerateWebsite = async () => {
     if (!prompt.trim()) {
       showToast('Please enter a prompt');
+      warn('App', 'Generate attempted with empty prompt');
       return;
     }
 
+    info('App', 'Starting website generation', {
+      prompt: prompt.substring(0, 100),
+      projectId: currentProjectId,
+      model: selectedModel
+    });
+    
     isGeneratingRef.current = true;
     setIsGenerating(true);
     setGenerationError(null);
@@ -209,24 +249,35 @@ export default function App() {
               
               switch (data.type) {
                 case 'progress':
+                  debug('App', 'Generation progress', data.progress);
                   setGenerationProgress(data.progress);
                   break;
                   
                 case 'file_chunk':
                   // Accumulate streaming content for this file
-                  streamingFileContent.current.set(
-                    data.filePath,
-                    (streamingFileContent.current.get(data.filePath) || '') + data.chunk
-                  );
+                  const currentChunk = streamingFileContent.current.get(data.filePath) || '';
+                  const newContent = currentChunk + data.chunk;
+                  streamingFileContent.current.set(data.filePath, newContent);
+                  
+                  debug('App', 'File chunk received', {
+                    filePath: data.filePath,
+                    chunkLength: data.chunk.length,
+                    totalLength: newContent.length,
+                  });
                   
                   // Update current code if this is the active file
                   if (data.filePath === activeFile) {
-                    setCurrentCode(streamingFileContent.current.get(data.filePath) || '');
+                    setCurrentCode(newContent);
                   }
                   break;
                   
                 case 'file_complete':
                   const completeContent = data.content;
+                  debug('App', 'File complete', {
+                    filePath: data.filePath,
+                    contentLength: completeContent.length,
+                  });
+                  
                   setProjectFiles(prev => [...prev, {
                     path: data.filePath,
                     content: completeContent,
@@ -245,6 +296,11 @@ export default function App() {
                   break;
                   
                 case 'complete':
+                  info('App', 'Generation complete', {
+                    fileCount: data.files.length,
+                    manifest: data.manifest
+                  });
+                  
                   setGenerationProgress({
                     ...data.progress,
                     stage: 'complete',
@@ -254,14 +310,16 @@ export default function App() {
                   // Store in Convex (frontend handles storage)
                   try {
                     if (storeProjectFiles && createProjectManifest) {
+                      debug('App', 'Storing files in Convex');
                       // Create project manifest first
                       await createProjectManifest(currentProjectId, prompt, selectedModel);
                       
                       // Store all project files
                       await storeProjectFiles(currentProjectId, data.files, '');
+                      info('App', 'Files stored in Convex successfully');
                     }
-                  } catch (err) {
-                    console.warn('Failed to store files in Convex:', err);
+                  } catch (err: any) {
+                    logError('App', 'Failed to store files in Convex', err);
                     // Don't fail the generation if storage fails
                   }
                   
@@ -275,6 +333,7 @@ export default function App() {
                       };
                       return [newItem, ...prev].slice(0, MAX_VERSION_HISTORY);
                     });
+                    debug('App', 'Version history updated', { historyCount: versionHistory.length + 1 });
                   }
                   
                   setPrompt('');
@@ -284,6 +343,7 @@ export default function App() {
                   break;
                   
                 case 'error':
+                  logError('App', 'Generation error', data.error);
                   setGenerationError(data.error);
                   showToast(`Error: ${data.error.message}`);
                   isGeneratingRef.current = false;
@@ -315,6 +375,11 @@ export default function App() {
   }, []);
 
   const handleNewProject = useCallback(() => {
+    info('App', 'New project created', {
+      oldProjectId: currentProjectId,
+      newProjectId: `project-${Date.now()}`
+    });
+    
     setCurrentCode('');
     setChatHistory([]);
     setVersionHistory([]);
@@ -328,21 +393,27 @@ export default function App() {
     setCurrentProjectId(newProjectId);
     localStorage.setItem('currentProjectId', newProjectId);
     showToast('Project Reset');
-  }, [showToast]);
+  }, [showToast, info, currentProjectId]);
 
   const loadVersion = useCallback((index: number) => {
     const item = versionHistory[index];
-    if (!item) return;
+    if (!item) {
+      warn('App', 'Attempted to load non-existent version', { index });
+      return;
+    }
+    debug('App', 'Loading version', { index, timestamp: item.timestamp, codeLength: item.code.length });
     setCurrentCode(item.code);
     setActiveVersionIndex(index);
-  }, [versionHistory]);
+  }, [versionHistory, warn, debug]);
 
   const handleCopy = useCallback(() => {
+    debug('App', 'Copy code clicked', { codeLength: currentCode.length });
     navigator.clipboard.writeText(currentCode);
     showToast('Code copied');
-  }, [currentCode, showToast]);
+  }, [currentCode, showToast, debug]);
 
   const handleDownload = useCallback(() => {
+    debug('App', 'Download code clicked', { codeLength: currentCode.length });
     const blob = new Blob([currentCode], { type: 'text/html' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -351,30 +422,38 @@ export default function App() {
     a.click();
     URL.revokeObjectURL(url);
     showToast('Code downloaded');
-  }, [currentCode, showToast]);
+  }, [currentCode, showToast, debug]);
 
   const handleFormatCode = useCallback(async () => {
+    debug('App', 'Format code clicked', { codeLength: currentCode.length });
     try {
       const formatted = await formatCode(currentCode);
       setCurrentCode(formatted);
       showToast('Code formatted');
-    } catch (error) {
+      info('App', 'Code formatted successfully', { originalLength: currentCode.length, formattedLength: formatted.length });
+    } catch (error: any) {
+      logError('App', 'Formatting failed', error);
       showToast('Formatting failed');
     }
-  }, [currentCode, showToast]);
+  }, [currentCode, showToast, info, logError, debug]);
 
   const handleFind = useCallback(() => {
+    debug('App', 'Find clicked', { query: findQuery });
     if (editorRef.current && findQuery) {
       const model = editorRef.current.getModel();
       const matches = model.findMatches(findQuery, true, false, false, null, true);
       if (matches.length > 0) {
         editorRef.current.setSelection(matches[0].range);
         editorRef.current.revealRangeInCenter(matches[0].range);
-      }
+        debug('App', 'Find results', { matches: matches.length });
+      } else {
+        debug('App', 'No matches found');
+     }
     }
-  }, [findQuery]);
+  }, [findQuery, debug]);
 
   const handleReplace = useCallback(() => {
+    debug('App', 'Replace clicked', { find: findQuery, replace: replaceQuery });
     if (editorRef.current && findQuery && replaceQuery) {
       const model = editorRef.current.getModel();
       const matches = model.findMatches(findQuery, true, false, false, null, true);
@@ -386,11 +465,16 @@ export default function App() {
           },
         ]);
         showToast('Replaced');
+        info('App', 'Replace executed', { matches: matches.length });
+      } else {
+        debug('App', 'No matches to replace');
       }
     }
-  }, [findQuery, replaceQuery, showToast]);
+  }, [findQuery, replaceQuery, showToast, info, debug]);
 
   const handleAgentChange = (agent: AgentType) => {
+    info('App', 'Agent changed', { from: currentAgent, to: agent });
+    
     setCurrentAgent(agent);
     setPrompt('');
     setCurrentCode('');
@@ -402,7 +486,14 @@ export default function App() {
     setActiveFile(null);
     setGenerationProgress(null);
     setGenerationError(null);
-    showToast(`Switched to ${agent === 'website' ? 'Website Builder' : agent === 'code' ? 'Code Assistant' : agent === 'image' ? 'Image Generator' : 'General Chat'}`);
+    
+    const agentNames = {
+      website: 'Website Builder',
+      code: 'Code Assistant',
+      image: 'Image Generator',
+      chat: 'General Chat'
+    };
+    showToast(`Switched to ${agentNames[agent]}`);
   };
 
   return (
@@ -425,6 +516,19 @@ export default function App() {
             onAgentChange={handleAgentChange}
           />
 
+          {/* Download Logs Button */}
+          <button
+            onClick={downloadLogs}
+            className="w-full flex items-center justify-center gap-2 p-2.5 rounded-lg border border-dashed border-zinc-800 bg-white/5 text-sm hover:bg-white/10 hover:border-indigo-500 transition-all focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            aria-label="Download logs"
+            title={`Download ${logs.length} log entries`}
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            Download Logs ({logs.length})
+          </button>
+
           {currentAgent === 'website' && (
             <>
               <button 
@@ -440,7 +544,10 @@ export default function App() {
                 <select
                   id="model-select"
                   value={selectedModel}
-                  onChange={(e) => setSelectedModel(e.target.value)}
+                  onChange={(e) => {
+                    debug('App', 'Model changed', { from: selectedModel, to: e.target.value });
+                    setSelectedModel(e.target.value);
+                  }}
                   className="w-full bg-zinc-800 border border-zinc-800 rounded-lg p-3 text-sm focus:outline-none focus:border-indigo-500 transition-colors"
                   aria-label="Select AI model"
                 >
@@ -455,10 +562,16 @@ export default function App() {
               
               <div className="flex flex-col gap-2">
                 <label className="text-xs font-semibold text-slate-400 uppercase" htmlFor="prompt-input">Describe or Edit</label>
-                <textarea 
+                <textarea
                   id="prompt-input"
                   value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
+                  onChange={(e) => {
+                    debug('App', 'Prompt changed', {
+                      oldLength: prompt.length,
+                      newLength: e.target.value.length
+                    });
+                    setPrompt(e.target.value);
+                  }}
                   className="w-full min-h-[120px] bg-zinc-800 border border-zinc-800 rounded-lg p-3 text-sm resize-none focus:outline-none focus:border-indigo-500 transition-colors"
                   placeholder="What should I build or change?"
                   aria-describedby="prompt-help"
@@ -590,8 +703,11 @@ export default function App() {
               >
                 <Copy className="w-4 h-4" aria-hidden="true" />
               </button>
-              <button 
-                onClick={() => setIsPreviewVisible(true)}
+              <button
+                onClick={() => {
+                  debug('App', 'Preview opened');
+                  setIsPreviewVisible(true);
+                }}
                 className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md hover:bg-zinc-800 hover:text-slate-50 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 aria-label="Preview code"
               >
@@ -614,7 +730,14 @@ export default function App() {
                 height="100%"
                 defaultLanguage={activeFile ? getLanguageFromPath(activeFile) : 'html'}
                 value={currentCode}
-                onChange={(value) => setCurrentCode(value || '')}
+                onChange={(value) => {
+                  debug('App', 'Editor content changed', {
+                    activeFile,
+                    newLength: value?.length || 0,
+                    changeType: value && currentCode ? (value.length > currentCode.length ? 'added' : 'removed') : 'initial'
+                  });
+                  setCurrentCode(value || '');
+                }}
                 theme="vs-dark"
                 onMount={handleEditorMount}
                 options={{
@@ -641,8 +764,11 @@ export default function App() {
           {isPreviewVisible && (
             <div className="absolute inset-0 bg-white z-50 flex flex-col" role="dialog" aria-label="Preview" aria-modal="true">
               <div className="h-[50px] bg-slate-100 border-b border-slate-200 flex items-center justify-between px-5 text-slate-600">
-                <button 
-                  onClick={() => setIsPreviewVisible(false)}
+                <button
+                  onClick={() => {
+                    debug('App', 'Preview closed');
+                    setIsPreviewVisible(false);
+                  }}
                   className="p-1.5 rounded-md hover:bg-slate-200 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   aria-label="Close preview"
                 >
@@ -681,7 +807,10 @@ export default function App() {
                       id="find-input"
                       type="text"
                       value={findQuery}
-                      onChange={(e) => setFindQuery(e.target.value)}
+                      onChange={(e) => {
+                        debug('App', 'Find query changed', { old: findQuery, new: e.target.value });
+                        setFindQuery(e.target.value);
+                      }}
                       className="w-full bg-zinc-800 border border-zinc-800 rounded-lg p-3 text-sm focus:outline-none focus:border-indigo-500"
                       placeholder="Text to find..."
                       autoFocus
@@ -696,7 +825,10 @@ export default function App() {
                       id="replace-input"
                       type="text"
                       value={replaceQuery}
-                      onChange={(e) => setReplaceQuery(e.target.value)}
+                      onChange={(e) => {
+                        debug('App', 'Replace query changed', { old: replaceQuery, new: e.target.value });
+                        setReplaceQuery(e.target.value);
+                      }}
                       className="w-full bg-zinc-800 border border-zinc-800 rounded-lg p-3 text-sm focus:outline-none focus:border-indigo-500"
                       placeholder="Replacement text..."
                     />
@@ -706,12 +838,16 @@ export default function App() {
                 <div className="flex gap-3 mt-6">
                   <button
                     onClick={() => {
+                      debug('App', 'Find Next clicked', { query: findQuery });
                       if (editorRef.current && findQuery) {
                         const model = editorRef.current.getModel();
                         const matches = model.findMatches(findQuery, true, false, false, null, true);
                         if (matches.length > 0) {
                           editorRef.current.setSelection(matches[0].range);
                           editorRef.current.revealRangeInCenter(matches[0].range);
+                          debug('App', 'Find result', { matches: matches.length });
+                        } else {
+                          debug('App', 'No matches found');
                         }
                       }
                     }}
@@ -721,6 +857,7 @@ export default function App() {
                   </button>
                   <button
                     onClick={() => {
+                      debug('App', 'Replace clicked', { find: findQuery, replace: replaceQuery });
                       if (editorRef.current && findQuery && replaceQuery) {
                         const model = editorRef.current.getModel();
                         const matches = model.findMatches(findQuery, true, false, false, null, true);
@@ -732,6 +869,9 @@ export default function App() {
                             },
                           ]);
                           showToast('Replaced');
+                          info('App', 'Replace executed', { matches: matches.length });
+                        } else {
+                          debug('App', 'No matches to replace');
                         }
                       }
                     }}
@@ -743,6 +883,7 @@ export default function App() {
 
                 <button
                   onClick={() => {
+                    debug('App', 'Find/Replace cancelled');
                     setIsFindReplaceVisible(false);
                     setFindQuery('');
                     setReplaceQuery('');
