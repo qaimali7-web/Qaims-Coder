@@ -48,7 +48,7 @@ export default async function handler(req, res) {
       }
     });
 
-    // Step 2: Generate each file
+    // Step 2: Generate each file with streaming
     const files = [];
     for (let i = 0; i < manifest.files.length; i++) {
       const fileSpec = manifest.files[i];
@@ -65,11 +65,21 @@ export default async function handler(req, res) {
         }
       });
 
-      const content = await generateFileContent(
+      const content = await generateFileContentStreaming(
         prompt,
         fileSpec,
         files, // previously generated files
-        model
+        model,
+        (chunk) => {
+          // Send incremental updates to frontend
+          sendEvent({
+            type: 'file_chunk',
+            filePath: fileSpec.path,
+            chunk,
+            fileIndex: i,
+            totalFiles: manifest.totalFiles,
+          });
+        }
       );
 
       files.push({
@@ -179,12 +189,13 @@ async function generateManifest(prompt: string, model: string): Promise<any> {
   }
 }
 
-// Helper to generate individual file content
-async function generateFileContent(
+// Helper to generate individual file content with streaming
+async function generateFileContentStreaming(
   prompt: string,
   fileSpec: any,
   previousFiles: Array<{ path: string; content: string }>,
-  model: string
+  model: string,
+  onChunk: (chunk: string) => void
 ): Promise<string> {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
@@ -200,42 +211,100 @@ async function generateFileContent(
     ? `Create the ${fileSpec.path} file for: ${prompt}\n\n${context}\n\nReturn ONLY the raw ${fileSpec.language} code. No markdown. No explanations.`
     : `Create the ${fileSpec.path} file (${fileSpec.language}) for: ${prompt}\n\n${context}\n\nReturn ONLY the raw ${fileSpec.language} code. No markdown. No explanations.`;
 
-  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-      'HTTP-Referer': process.env.SITE_URL || 'https://your-app.vercel.app',
-      'X-Title': 'Qaims Coder - File Generator',
-    },
-    body: JSON.stringify({
-      model,
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: userPrompt },
-      ],
-      stream: false,
-      max_tokens: 8000,
-      temperature: 0.7,
-    }),
-  });
+  // Set up timeout (60 seconds)
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 60000);
 
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.error?.message || `File generation failed: ${response.status}`);
+  try {
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': process.env.SITE_URL || 'https://your-app.vercel.app',
+        'X-Title': 'Qaims Coder - File Generator',
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'user', content: userPrompt },
+        ],
+        stream: true, // Enable streaming
+        max_tokens: 8000,
+        temperature: 0.7,
+      }),
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error?.message || `File generation failed: ${response.status}`);
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) {
+      throw new Error('No response body reader');
+    }
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let fullContent = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const dataStr = line.slice(6);
+          if (dataStr === '[DONE]') continue;
+
+          try {
+            const data = JSON.parse(dataStr);
+            const contentChunk = data.choices?.[0]?.delta?.content;
+            if (contentChunk) {
+              fullContent += contentChunk;
+              onChunk(contentChunk);
+            }
+          } catch (e) {
+            // Skip invalid JSON lines
+          }
+        }
+      }
+    }
+
+    // Clean up markdown if present
+    let cleanedContent = fullContent
+      .replace(/^```\w+\n?/, '')
+      .replace(/^```\n?/, '')
+      .replace(/\n?```$/, '')
+      .trim();
+
+    return cleanedContent;
+  } catch (error: any) {
+    clearTimeout(timeoutId);
+    if (error.name === 'AbortError') {
+      throw new Error('File generation timeout after 60 seconds');
+    }
+    throw error;
   }
+}
 
-  const data = await response.json();
-  let content = data.choices?.[0]?.message?.content || '';
-
-  // Clean up markdown if present
-  content = content
-    .replace(/^```\w+\n?/, '')
-    .replace(/^```\n?/, '')
-    .replace(/\n?```$/, '')
-    .trim();
-
-  return content;
+// Keep the old function for backward compatibility
+async function generateFileContent(
+  prompt: string,
+  fileSpec: any,
+  previousFiles: Array<{ path: string; content: string }>,
+  model: string
+): Promise<string> {
+  return generateFileContentStreaming(prompt, fileSpec, previousFiles, model, () => {});
 }
 
 // System prompts

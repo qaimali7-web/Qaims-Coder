@@ -47,6 +47,9 @@ export default function App() {
   const [activeFile, setActiveFile] = useState<string | null>(null);
   const [generationProgress, setGenerationProgress] = useState<GenerationProgress | null>(null);
   const [generationError, setGenerationError] = useState<ApiError | null>(null);
+  
+  // Track streaming file content
+  const streamingFileContent = useRef<Map<string, string>>(new Map());
 
   const { toasts, showToast } = useToasts();
   const { storeProjectFiles, createProjectManifest } = useConvex();
@@ -139,10 +142,17 @@ export default function App() {
 
   // Handle file selection from explorer
   const handleFileSelect = (path: string) => {
-    const file = projectFiles.find(f => f.path === path);
-    if (file) {
+    // Check if this file is currently being streamed
+    const streamingContent = streamingFileContent.current.get(path);
+    if (streamingContent) {
       setActiveFile(path);
-      setCurrentCode(file.content);
+      setCurrentCode(streamingContent);
+    } else {
+      const file = projectFiles.find(f => f.path === path);
+      if (file) {
+        setActiveFile(path);
+        setCurrentCode(file.content);
+      }
     }
   };
 
@@ -158,6 +168,7 @@ export default function App() {
     setGenerationError(null);
     setProjectFiles([]);
     setActiveFile(null);
+    streamingFileContent.current.clear();
 
     try {
       const response = await fetch('/api/build-site', {
@@ -201,17 +212,35 @@ export default function App() {
                   setGenerationProgress(data.progress);
                   break;
                   
+                case 'file_chunk':
+                  // Accumulate streaming content for this file
+                  streamingFileContent.current.set(
+                    data.filePath,
+                    (streamingFileContent.current.get(data.filePath) || '') + data.chunk
+                  );
+                  
+                  // Update current code if this is the active file
+                  if (data.filePath === activeFile) {
+                    setCurrentCode(streamingFileContent.current.get(data.filePath) || '');
+                  }
+                  break;
+                  
                 case 'file_complete':
+                  const completeContent = data.content;
                   setProjectFiles(prev => [...prev, {
                     path: data.filePath,
-                    content: data.content,
+                    content: completeContent,
                     language: getLanguageFromPath(data.filePath),
                     isMain: data.filePath === 'index.html',
                     order: projectFiles.length,
                   }]);
+                  
+                  // Clear streaming cache for this file
+                  streamingFileContent.current.delete(data.filePath);
+                  
                   if (!activeFile) {
                     setActiveFile(data.filePath);
-                    setCurrentCode(data.content);
+                    setCurrentCode(completeContent);
                   }
                   break;
                   
