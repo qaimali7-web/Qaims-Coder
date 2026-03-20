@@ -84,7 +84,7 @@ export function useGeneration({ onCodeUpdate, onComplete, toast }: UseGeneration
             try {
               const parsed = JSON.parse(data);
               if (parsed.code) {
-                code = parsed.code;
+                code += parsed.code;
                 onCodeUpdate(code);
                 setState({ status: 'generating', message: parsed.message || 'Generating...', autoRetryCount: state.autoRetryCount });
               }
