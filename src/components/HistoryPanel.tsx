@@ -19,7 +19,8 @@ export function HistoryPanel({ history, onRestore, onDelete, onClear }: HistoryP
     });
   };
 
-  const getModelName = (modelId: string) => {
+  const getModelName = (modelId?: string) => {
+    if (!modelId) return 'Unknown';
     const parts = modelId.split('/');
     return parts[parts.length - 1] || modelId;
   };
