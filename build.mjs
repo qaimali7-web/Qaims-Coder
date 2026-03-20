@@ -8,6 +8,7 @@ import { readFile, mkdir, copyFile, unlink } from 'fs/promises';
 import { join, dirname, extname, basename } from 'path';
 import { fileURLToPath } from 'url';
 import { spawn } from 'child_process';
+import { build as viteBuild } from 'vite';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -222,22 +223,17 @@ function startServer(options = {}) {
 async function build() {
   console.log('🏗️  Building for production...');
   
-  // Run Vite build
-  const vite = spawn('npx', ['vite', 'build'], { 
-    stdio: 'inherit',
-    cwd: __dirname 
-  });
-
-  await new Promise((resolve, reject) => {
-    vite.on('close', (code) => {
-      if (code === 0) {
-        console.log('✅ Vite build completed');
-        resolve();
-      } else {
-        reject(new Error(`Vite build failed with code ${code}`));
-      }
+  // Run Vite build programmatically
+  try {
+    await viteBuild({
+      root: __dirname,
+      outDir: join(__dirname, 'dist'),
+      logLevel: 'info',
     });
-  });
+    console.log('✅ Vite build completed');
+  } catch (err) {
+    throw new Error(`Vite build failed: ${err.message}`);
+  }
 
   // Copy api/generate-html.ts to dist/api/ for serverless deployment
   const apiSrc = join(__dirname, 'api', 'generate-html.ts');
