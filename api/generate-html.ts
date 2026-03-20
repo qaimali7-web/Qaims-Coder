@@ -275,7 +275,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         chunksSeen++;
         fullContent += chunk;
 
-        sendSSE(res, { type: 'chunk', chunk });
+        sendSSE(res, { code: chunk });
       }
     }
 
@@ -311,11 +311,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         },
       });
     } else if (isComplete) {
-      sendSSE(res, {
-        type:    'complete',
-        content: html,
-        length:  html.length,
-      });
+      // Send final [DONE] signal
+      sendSSE(res, { code: html });
+      res.write('data: [DONE]\n\n');
     } else {
       // Very short and still no HTML closing — genuine error
       sendSSE(res, {
