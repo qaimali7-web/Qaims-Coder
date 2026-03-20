@@ -4,8 +4,8 @@
 // Handles dev server, build, and preview with API routes
 
 import { createServer } from 'http';
-import { readFile } from 'fs/promises';
-import { join, dirname, extname } from 'path';
+import { readFile, mkdir, copyFile, unlink } from 'fs/promises';
+import { join, dirname, extname, basename } from 'path';
 import { fileURLToPath } from 'url';
 import { spawn } from 'child_process';
 
@@ -16,7 +16,7 @@ const __dirname = dirname(__filename);
 const PORT = process.env.PORT || 3001;
 const VITE_DEV_PORT = 3000;
 
-// Simple file server for static files in production
+// Simple file server for static files in production mode
 async function serveFile(filePath, res) {
   try {
     const content = await readFile(filePath);
@@ -29,6 +29,7 @@ async function serveFile(filePath, res) {
       '.png': 'image/png',
       '.jpg': 'image/jpeg',
       '.svg': 'image/svg+xml',
+      '.ico': 'image/x-icon',
     };
     const mime = mimeTypes[ext] || 'text/plain';
     res.writeHead(200, { 'Content-Type': mime });
@@ -184,10 +185,12 @@ Start with <!DOCTYPE html> and end with </html>.`
   });
 }
 
-// Development server
-function startDevServer() {
+// Development server (for both dev and preview modes)
+function startServer(options = {}) {
+  const { onReady, mode = 'dev' } = options;
+  
   const server = createServer(async (req, res) => {
-    console.log(`${req.method} ${req.url}`);
+    console.log(`[${mode}] ${req.method} ${req.url}`);
 
     // Handle API routes
     if (req.url.startsWith('/api/')) {
@@ -201,23 +204,73 @@ function startDevServer() {
       return;
     }
 
-    // Serve static files from dist in production mode
-    if (process.env.NODE_ENV === 'production') {
-      let filePath = join(__dirname, 'dist', req.url === '/' ? 'index.html' : req.url);
-      await serveFile(filePath, res);
-      return;
-    }
-
-    // In dev mode, proxy to Vite
-    res.writeHead(502, { 'Content-Type': 'text/plain' });
-    res.end('Bad gateway: Vite dev server should handle this');
+    // Serve static files from dist
+    let filePath = join(__dirname, 'dist', req.url === '/' ? 'index.html' : req.url);
+    await serveFile(filePath, res);
   });
 
-  server.listen(PORT, () => {
-    console.log(`\n🚀 API Server running on http://localhost:${PORT}`);
-    console.log(`   Frontend: http://localhost:${VITE_DEV_PORT}\n`);
+  return new Promise((resolve) => {
+    server.listen(PORT, () => {
+      console.log(`\n🚀 Server ready on http://localhost:${PORT}`);
+      if (onReady) onReady(server);
+      resolve(server);
+    });
   });
 }
 
-// Start server
-startDevServer();
+// Build function
+async function build() {
+  console.log('🏗️  Building for production...');
+  
+  // Run Vite build
+  const vite = spawn('npx', ['vite', 'build'], { 
+    stdio: 'inherit',
+    cwd: __dirname 
+  });
+
+  await new Promise((resolve, reject) => {
+    vite.on('close', (code) => {
+      if (code === 0) {
+        console.log('✅ Vite build completed');
+        resolve();
+      } else {
+        reject(new Error(`Vite build failed with code ${code}`));
+      }
+    });
+  });
+
+  // Copy api/generate-html.ts to dist/api/ for serverless deployment
+  const apiSrc = join(__dirname, 'api', 'generate-html.ts');
+  const apiDst = join(__dirname, 'dist', 'api', 'generate-html.ts');
+  
+  try {
+    await mkdir(join(__dirname, 'dist', 'api'), { recursive: true });
+    await copyFile(apiSrc, apiDst);
+    console.log('✅ API file copied to dist/');
+  } catch (err) {
+    console.error('Failed to copy API file:', err);
+  }
+
+  console.log('✅ Build completed successfully');
+}
+
+// Main entry point
+const command = process.argv[2];
+
+switch (command) {
+  case 'build':
+    build().catch((err) => {
+      console.error('Build failed:', err);
+      process.exit(1);
+    });
+    break;
+
+  case 'preview':
+    startServer({ mode: 'preview' });
+    break;
+
+  case 'dev':
+  default:
+    startServer({ mode: 'dev' });
+    break;
+}
