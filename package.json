@@ -1,16 +1,15 @@
 {
   "name": "ai-website-builder",
   "private": true,
-  "version": "1.0.0",
+  "version": "2.0.0",
   "type": "module",
   "engines": {
-    "node": "24.x"
+    "node": ">=18.x"
   },
   "scripts": {
-    "dev": "node --experimental-specifier-resolution=node build.cjs dev",
-    "build": "node build.cjs build",
-    "preview": "node build.cjs preview",
-    "clean": "rmdir /s /q dist",
+    "dev": "node build.mjs dev",
+    "build": "node build.mjs build",
+    "preview": "node build.mjs preview",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
@@ -20,10 +19,14 @@
     "lucide-react": "^0.546.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "tailwindcss": "^4.2.1",
     "vite": "^6.2.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vercel/node": "^5.6.18",
     "typescript": "~5.8.2"
   }
 }
