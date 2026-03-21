@@ -22,9 +22,7 @@ export function useGeneration({ onCodeUpdate, onComplete, toast }: UseGeneration
   });
 
   const controllerRef = useRef<AbortController | null>(null);
-  const isGeneratingRef = useRef(false);
-
-  const isGenerating = isGeneratingRef.current;
+  const [isGenerating, setIsGenerating] = useState(false);
 
   const generate = useCallback(async (
     prompt: string,
@@ -32,15 +30,17 @@ export function useGeneration({ onCodeUpdate, onComplete, toast }: UseGeneration
     signal?: AbortSignal,
     retry = false
   ) => {
-    if (isGeneratingRef.current && !retry) return;
+    if (isGenerating && !retry) return;
 
     const controller = new AbortController();
+    let abortHandler: (() => void) | null = null;
     if (signal) {
-      signal.addEventListener('abort', () => controller.abort());
+      abortHandler = () => controller.abort();
+      signal.addEventListener('abort', abortHandler);
     }
     controllerRef.current = controller;
 
-    isGeneratingRef.current = true;
+    setIsGenerating(true);
     setState({
       status: 'generating',
       message: retry ? 'Retrying...' : 'Starting generation...',
@@ -112,10 +112,13 @@ export function useGeneration({ onCodeUpdate, onComplete, toast }: UseGeneration
         toast('error', `Generation failed: ${errorMsg}`);
       }
     } finally {
-      isGeneratingRef.current = false;
+      if (signal && abortHandler) {
+        signal.removeEventListener('abort', abortHandler);
+      }
+      setIsGenerating(false);
       controllerRef.current = null;
     }
-  }, [onCodeUpdate, onComplete, toast, state.autoRetryCount]);
+  }, [onCodeUpdate, onComplete, toast, state.autoRetryCount, isGenerating]);
 
   const stop = useCallback(() => {
     if (controllerRef.current) {

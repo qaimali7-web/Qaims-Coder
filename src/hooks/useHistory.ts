@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { HistoryEntry } from '../types';
 
 const STORAGE_KEY = 'qaims-coder-history';
@@ -18,13 +18,16 @@ export function useHistory() {
     }
   }, []);
 
-  // Save to localStorage when history changes
+  // Save to localStorage when history changes (debounced)
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(history));
-    } catch (e) {
-      console.error('Failed to save history:', e);
-    }
+    const timeoutId = setTimeout(() => {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(history));
+      } catch (e) {
+        console.error('Failed to save history:', e);
+      }
+    }, 300);
+    return () => clearTimeout(timeoutId);
   }, [history]);
 
   const addEntry = useCallback((entry: Omit<HistoryEntry, 'id' | 'timestamp'>) => {

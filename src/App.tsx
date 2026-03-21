@@ -9,6 +9,7 @@ import { ModelSelector }  from './components/ModelSelector';
 import { HistoryPanel }   from './components/HistoryPanel';
 import { PreviewModal }   from './components/PreviewModal';
 import { EditorSkeleton } from './components/EditorSkeleton';
+import { ErrorBoundary }  from './ErrorBoundary';
 import { StatusBar }      from './components/StatusBar';
 import { ToastContainer, useToast } from './components/Toast';
 import { useGeneration }  from './hooks/useGeneration';
@@ -291,6 +292,17 @@ export default function App() {
         />
       )}
 
+      {/* ── Floating mobile menu button (when sidebar closed) ───────────── */}
+      {!sidebarOpen && (
+        <button
+          className="md:hidden fixed top-4 left-4 z-40 p-2.5 rounded-full bg-[#0d0d1a] border border-slate-800/60 text-slate-400 hover:text-white hover:bg-slate-800/80 shadow-lg transition-colors"
+          onClick={() => setSidebarOpen(true)}
+          aria-label="Open sidebar"
+        >
+          <Menu className="w-5 h-5" />
+        </button>
+      )}
+
       {/* ── Sidebar ─────────────────────────────────────────────────────── */}
       <aside
         className={`
@@ -371,40 +383,47 @@ export default function App() {
         </div>
 
         {/* ── Monaco Editor ─────────────────────────────────────────────── */}
-        <div className="flex-1 overflow-hidden">
-          <Editor
-            height="100%"
-            defaultLanguage="html"
-            value={code}
-            onChange={(val) => {
-              const v = val ?? '';
-              codeRef.current = v;
-              setCode(v);
-            }}
-            theme="vs-dark"
-            onMount={() => setEditorReady(true)}
-            loading={<EditorSkeleton />}
-            options={{
-              minimap:                  { enabled: true },
-              fontSize:                 13,
-              fontFamily:               '"JetBrains Mono", monospace',
-              fontLigatures:            true,
-              lineNumbers:              'on',
-              scrollBeyondLastLine:     false,
-              automaticLayout:          true,
-              tabSize:                  2,
-              wordWrap:                 'on',
-              folding:                  true,
-              renderWhitespace:         'selection',
-              bracketPairColorization:  { enabled: true },
-              autoClosingBrackets:      'always',
-              smoothScrolling:          true,
-              cursorBlinking:           'smooth',
-              cursorSmoothCaretAnimation: 'on',
-              padding:                  { top: 16, bottom: 16 },
-            }}
-          />
-        </div>
+        <ErrorBoundary>
+          <div className="flex-1 overflow-hidden relative">
+            {!editorReady && (
+              <div className="absolute inset-0 z-10">
+                <EditorSkeleton />
+              </div>
+            )}
+            <Editor
+              height="100%"
+              defaultLanguage="html"
+              value={code}
+              onChange={(val) => {
+                const v = val ?? '';
+                codeRef.current = v;
+                setCode(v);
+              }}
+              theme="vs-dark"
+              onMount={() => setEditorReady(true)}
+              loading={null}
+              options={{
+                minimap:                  { enabled: true },
+                fontSize:                 13,
+                fontFamily:               '"JetBrains Mono", monospace',
+                fontLigatures:            true,
+                lineNumbers:              'on',
+                scrollBeyondLastLine:     false,
+                automaticLayout:          true,
+                tabSize:                  2,
+                wordWrap:                 'on',
+                folding:                  true,
+                renderWhitespace:         'selection',
+                bracketPairColorization:  { enabled: true },
+                autoClosingBrackets:      'always',
+                smoothScrolling:          true,
+                cursorBlinking:           'smooth',
+                cursorSmoothCaretAnimation: 'on',
+                padding:                  { top: 16, bottom: 16 },
+              }}
+            />
+          </div>
+        </ErrorBoundary>
 
         {/* ── Status bar ────────────────────────────────────────────────── */}
         <StatusBar
