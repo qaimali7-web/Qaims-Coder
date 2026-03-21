@@ -44,7 +44,7 @@ export function HistoryPanel({ history, onRestore, onDelete, onClear }: HistoryP
         </span>
         <button
           onClick={onClear}
-          className="text-xs text-red-300 hover:text-red-200 font-mono transition-colors"
+          className="text-xs text-red-400 hover:text-red-300 font-mono transition-colors"
         >
           Clear All
         </button>

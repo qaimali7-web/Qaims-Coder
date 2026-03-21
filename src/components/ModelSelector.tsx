@@ -34,7 +34,7 @@ export function ModelSelector({ value, onChange, disabled }: ModelSelectorProps)
             </option>
           ))}
         </select>
-        <Sparkles className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" aria-hidden="true" />
+        <Sparkles className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" />
       </div>
     </div>
   );
