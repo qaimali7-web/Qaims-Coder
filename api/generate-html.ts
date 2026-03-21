@@ -87,9 +87,6 @@ interface RequestBody {
 
 const ALLOWED_MODELS = new Set([
   'stepfun/step-3.5-flash:free',
-  'stepfun/step-3.5-max:free',
-  'openai/gpt-4o-mini',
-  'anthropic/claude-3-haiku',
   'google/gemini-flash-1.5',
   'anthropic/claude-3.5-sonnet',
   'openai/gpt-4o',
