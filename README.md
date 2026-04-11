@@ -8,7 +8,7 @@ A production-grade, AI-powered website builder that generates complete, self-con
 
 | Feature | Details |
 |---|---|
-| **Multi-model AI** | StepFun Flash (free), Gemini Flash, Claude 3.5, GPT-4o, DeepSeek |
+| **Multi-model AI** | NVIDIA Nemotron 3 Super (free), GPT-4o Mini, Claude 3 Haiku |
 | **Real-time streaming** | Watch code appear token by token |
 | **Auto-retry** | Automatically continues if generation stalls or truncates |
 | **Monaco Editor** | Full VS Code editor with syntax highlighting & IntelliSense |

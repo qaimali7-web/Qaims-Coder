@@ -7,14 +7,9 @@ export interface AIModel {
 
 export const AI_MODELS: AIModel[] = [
   {
-    id: 'stepfun/step-3.5-flash:free',
-    name: 'Step-3.5 Flash',
-    provider: 'StepFun',
-  },
-  {
-    id: 'stepfun/step-3.5-max:free',
-    name: 'Step-3.5 Max',
-    provider: 'StepFun',
+    id: 'nvidia/nemotron-3-super-120b-a12b:free',
+    name: 'Nemotron 3 Super',
+    provider: 'NVIDIA',
   },
   {
     id: 'openai/gpt-4o-mini',
