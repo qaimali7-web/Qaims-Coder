@@ -44,7 +44,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         'X-Title': 'Qaim\'s Coder',
       },
       body: JSON.stringify({
-        model: model || 'openai/gpt-3.5-turbo', // Fallback model
+        model: model || 'nvidia/nemotron-3-super-120b-a12b:free', // Fallback model
         messages: [
           {
             role: 'system',

@@ -86,7 +86,7 @@ async function handleGenerateHtml(req, res) {
 
   req.on('end', async () => {
     try {
-      const { prompt, model = 'stepfun/step-3.5-flash:free' } = JSON.parse(body);
+      const { prompt, model = 'nvidia/nemotron-3-super-120b-a12b:free' } = JSON.parse(body);
 
       if (!prompt) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
