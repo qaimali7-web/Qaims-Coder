@@ -71,21 +71,47 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.setHeader('Cache-Control', 'no-cache, no-transform');
     res.setHeader('Connection', 'keep-alive');
 
-    // 6. Pipe the stream
-    // We use a reader to read the stream from OpenRouter and write it to the Vercel response
+    // 6. Parse and reformat OpenRouter stream
     const reader = response.body?.getReader();
     if (!reader) {
       throw new Error('Failed to get response stream reader');
     }
 
     const decoder = new TextDecoder();
+    let buffer = '';
     
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
       
-      const chunk = decoder.decode(value, { stream: true });
-      res.write(chunk);
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      
+      // Keep the last incomplete line in the buffer
+      buffer = lines.pop() || '';
+      
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const dataStr = line.slice(6).trim();
+          
+          if (dataStr === '[DONE]') {
+            res.write('data: [DONE]\n\n');
+            continue;
+          }
+          
+          try {
+            const data = JSON.parse(dataStr);
+            const content = data.choices?.[0]?.delta?.content;
+            
+            if (content) {
+              // Reformat as expected by frontend
+              res.write(`data: ${JSON.stringify({ code: content })}\n\n`);
+            }
+          } catch (e) {
+            // Skip malformed JSON lines
+          }
+        }
+      }
     }
 
     res.end();
