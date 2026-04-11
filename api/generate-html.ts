@@ -34,6 +34,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(500).json({ error: 'Server configuration error: API Key missing.' });
     }
 
+    console.log(`Generation started with model: ${model || 'nvidia/nemotron-3-super-120b-a12b:free'}`);
+
     // 3. Prepare the request to OpenRouter
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
@@ -55,7 +57,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             content: prompt
           }
         ],
-        stream: true // Enable streaming
+        stream: true, // Enable streaming
+        max_tokens: 16000,
       }),
     });
 
@@ -63,7 +66,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!response.ok) {
       const errorText = await response.text();
       console.error(`OpenRouter API Error: ${response.status} - ${errorText}`);
-      return res.status(response.status).json({ error: `AI Provider Error: ${response.status}` });
+      return res.status(response.status).json({ error: `AI Provider Error: ${response.status} - ${errorText}` });
     }
 
     // 5. Set headers for Streaming
@@ -74,47 +77,65 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // 6. Parse and reformat OpenRouter stream
     const reader = response.body?.getReader();
     if (!reader) {
-      throw new Error('Failed to get response stream reader');
+      res.write('data: ' + JSON.stringify({ error: 'Failed to get response stream' }) + '\n\n');
+      res.end();
+      return;
     }
 
     const decoder = new TextDecoder();
     let buffer = '';
+    let hasContent = false;
     
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      
-      // Keep the last incomplete line in the buffer
-      buffer = lines.pop() || '';
-      
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const dataStr = line.slice(6).trim();
-          
-          if (dataStr === '[DONE]') {
-            res.write('data: [DONE]\n\n');
-            continue;
-          }
-          
-          try {
-            const data = JSON.parse(dataStr);
-            const content = data.choices?.[0]?.delta?.content;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        
+        // Keep the last incomplete line in the buffer
+        buffer = lines.pop() || '';
+        
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const dataStr = line.slice(6).trim();
             
-            if (content) {
-              // Reformat as expected by frontend
-              res.write(`data: ${JSON.stringify({ code: content })}\n\n`);
+            if (dataStr === '[DONE]') {
+              res.write('data: [DONE]\n\n');
+              continue;
             }
-          } catch (e) {
-            // Skip malformed JSON lines
+            
+            try {
+              const data = JSON.parse(dataStr);
+              const content = data.choices?.[0]?.delta?.content;
+              
+              if (content) {
+                hasContent = true;
+                res.write(`data: ${JSON.stringify({ code: content })}\n\n`);
+              }
+            } catch (e) {
+              // Skip malformed JSON
+            }
           }
         }
       }
+      
+      if (!hasContent) {
+        console.warn('No content received from OpenRouter');
+        res.write('data: ' + JSON.stringify({ error: 'No content generated' }) + '\n\n');
+      }
+      
+      res.end();
+    } catch (streamError) {
+      console.error('Stream reading error:', streamError);
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Stream error: ' + streamError });
+      } else {
+        res.write('data: ' + JSON.stringify({ error: 'Stream interrupted' }) + '\n\n');
+        res.end();
+      }
     }
-
-    res.end();
 
   } catch (error: any) {
     console.error('Server Error:', error);
